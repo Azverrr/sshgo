@@ -17,10 +17,12 @@ Requires: python3-argcomplete
 
 %description
 SSH Connection Manager (sshgo) - удобный менеджер SSH подключений 
-с интерактивным меню и автодополнением для bash.
+с интерактивным меню и автодополнением для bash и zsh.
 
 Позволяет быстро подключаться к серверам по имени, управлять 
 списком серверов и использовать интерактивное меню для выбора.
+
+Поддерживает автодополнение в Bash и ZSH.
 
 %prep
 %setup -q
@@ -138,6 +140,19 @@ if [ -f /etc/bash.bashrc ]; then
     fi
 fi
 
+# Настройка для ZSH (пользовательский файл)
+if [ -f "$HOME/.zshrc" ]; then
+    if ! grep -q "bash_completion.d/sshgo" "$HOME/.zshrc" 2>/dev/null; then
+        echo "" >> "$HOME/.zshrc"
+        echo "# SSH Connection Manager - Auto-completion" >> "$HOME/.zshrc"
+        echo "# Enable bash completion compatibility for ZSH" >> "$HOME/.zshrc"
+        echo "autoload -U +X bashcompinit && bashcompinit" >> "$HOME/.zshrc"
+        echo "if [ -f /etc/bash_completion.d/sshgo ]; then" >> "$HOME/.zshrc"
+        echo "    source /etc/bash_completion.d/sshgo" >> "$HOME/.zshrc"
+        echo "fi" >> "$HOME/.zshrc"
+    fi
+fi
+
 %preun
 # Удаление не требуется, но можно добавить очистку
 
@@ -152,6 +167,6 @@ fi
 * Wed Dec 18 2024 SSH Connection Manager <sshgo@example.com> - 2.0.0-1
 - Initial RPM package for Python version
 - SSH Connection Manager with interactive menu
-- Bash completion support
+- Bash and ZSH completion support
 - Server management (add, edit, remove, list)
 

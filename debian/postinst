@@ -34,6 +34,19 @@ if [ -f /etc/bash.bashrc.local ]; then
     fi
 fi
 
+# Настройка для ZSH (пользовательский файл)
+if [ -f "$HOME/.zshrc" ]; then
+    if ! grep -q "bash_completion.d/sshgo" "$HOME/.zshrc" 2>/dev/null; then
+        echo "" >> "$HOME/.zshrc"
+        echo "# SSH Connection Manager - Auto-completion" >> "$HOME/.zshrc"
+        echo "# Enable bash completion compatibility for ZSH" >> "$HOME/.zshrc"
+        echo "autoload -U +X bashcompinit && bashcompinit" >> "$HOME/.zshrc"
+        echo "if [ -f /etc/bash_completion.d/sshgo ]; then" >> "$HOME/.zshrc"
+        echo "    source /etc/bash_completion.d/sshgo" >> "$HOME/.zshrc"
+        echo "fi" >> "$HOME/.zshrc"
+    fi
+fi
+
 # Обновляем кэш completion
 if command -v update-bash-completion >/dev/null 2>&1; then
     update-bash-completion
