@@ -129,31 +129,31 @@ if __name__ == "__main__":
         print_colored(Colors.BLUE, f"   Добавьте в ~/.bashrc: export PATH=\"$HOME/.local/bin:$PATH\"")
 
 
-def setup_completion():
-    """Настраивает bash completion"""
-    print_colored(Colors.BLUE, "🔧 Настраиваю автодополнение...")
-    
+def get_sshgo_path():
+    """Определяет путь к sshgo"""
     home = Path.home()
-    bashrc = home / ".bashrc"
-    bash_completion_dir = home / ".bash_completion.d"
     user_bin = home / ".local" / "bin"
-    
-    # Создаем директорию для completion если не существует
-    bash_completion_dir.mkdir(exist_ok=True)
-    
-    # Регистрируем argcomplete
-    completion_script = bash_completion_dir / "sshgo-completion.sh"
-    
-    # Определяем путь к sshgo (может быть в ~/.local/bin)
     sshgo_path = user_bin / "sshgo"
+    
     if not sshgo_path.exists():
         # Пробуем найти в PATH
-        import shutil
         sshgo_cmd = shutil.which("sshgo")
         if sshgo_cmd:
             sshgo_path = Path(sshgo_cmd)
         else:
             sshgo_path = Path("sshgo")  # Будет искать в PATH
+    
+    return sshgo_path
+
+
+def create_completion_script():
+    """Создает скрипт completion для bash/zsh"""
+    home = Path.home()
+    bash_completion_dir = home / ".bash_completion.d"
+    bash_completion_dir.mkdir(exist_ok=True)
+    
+    completion_script = bash_completion_dir / "sshgo-completion.sh"
+    sshgo_path = get_sshgo_path()
     
     with open(completion_script, 'w') as f:
         f.write(f"""# SSH Connection Manager - Auto-completion
@@ -195,53 +195,104 @@ complete -F _sshgo_completion sshgo
 """)
     
     completion_script.chmod(0o644)
+    return completion_script
+
+
+def setup_shell_completion(shell_name: str, rc_file: Path, completion_script: Path):
+    """
+    Настраивает completion для конкретной оболочки
+    
+    Args:
+        shell_name: Имя оболочки ('bash' или 'zsh')
+        rc_file: Путь к файлу конфигурации (.bashrc или .zshrc)
+        completion_script: Путь к скрипту completion
+    """
+    if not rc_file.exists():
+        return False
+    
+    try:
+        with open(rc_file, 'r') as f:
+            rc_content = f.read()
+        
+        completion_line = f"source {completion_script}"
+        path_line = 'export PATH="$HOME/.local/bin:$PATH"'
+        
+        needs_update = False
+        updates = []
+        
+        # Проверяем, нужно ли добавить PATH
+        if path_line not in rc_content and "$HOME/.local/bin" not in rc_content:
+            needs_update = True
+            updates.append(f"# Add user bin to PATH\n{path_line}")
+        
+        # Проверяем, нужно ли добавить completion
+        if completion_line not in rc_content:
+            needs_update = True
+            if shell_name == "zsh":
+                # Для ZSH нужен bashcompinit
+                updates.append(f"""# SSH Connection Manager - Auto-completion
+# Enable bash completion compatibility for ZSH
+autoload -U +X bashcompinit && bashcompinit
+if [ -f {completion_script} ]; then
+    source {completion_script}
+fi""")
+            else:
+                # Для Bash просто source
+                updates.append(f"# SSH Connection Manager - Auto-completion\nif [ -f {completion_script} ]; then\n    source {completion_script}\nfi")
+        
+        if needs_update:
+            try:
+                with open(rc_file, 'a') as f:
+                    f.write("\n")
+                    for update in updates:
+                        f.write(update + "\n")
+                print_colored(Colors.GREEN, f"✅ {rc_file.name} обновлен")
+                return True
+            except (PermissionError, IOError) as e:
+                print_colored(Colors.YELLOW, f"⚠️  Не удалось автоматически обновить {rc_file.name}: {e}")
+                print_colored(Colors.BLUE, f"\n📝 Добавьте вручную в ~/{rc_file.name}:")
+                for update in updates:
+                    print_colored(Colors.BLUE, f"   {update}")
+                return False
+        else:
+            print_colored(Colors.YELLOW, f"⚠️  Настройки уже присутствуют в {rc_file.name}")
+            return True
+    except (PermissionError, IOError) as e:
+        print_colored(Colors.YELLOW, f"⚠️  Не удалось прочитать {rc_file.name}: {e}")
+        return False
+
+
+def setup_completion():
+    """Настраивает completion для всех доступных оболочек"""
+    print_colored(Colors.BLUE, "🔧 Настраиваю автодополнение...")
+    
+    home = Path.home()
+    completion_script = create_completion_script()
     print_colored(Colors.GREEN, f"✅ Completion скрипт создан: {completion_script}")
     
-    # Добавляем в .bashrc если еще не добавлено
+    # Настраиваем для Bash
+    bashrc = home / ".bashrc"
     if bashrc.exists():
-        try:
-            with open(bashrc, 'r') as f:
-                bashrc_content = f.read()
-            
-            completion_line = f"source {completion_script}"
-            path_line = 'export PATH="$HOME/.local/bin:$PATH"'
-            
-            needs_update = False
-            updates = []
-            
-            # Проверяем, нужно ли добавить PATH
-            if path_line not in bashrc_content and "$HOME/.local/bin" not in bashrc_content:
-                needs_update = True
-                updates.append(f"# Add user bin to PATH\n{path_line}")
-            
-            # Проверяем, нужно ли добавить completion
-            if completion_line not in bashrc_content:
-                needs_update = True
-                updates.append(f"# SSH Connection Manager - Auto-completion\nif [ -f {completion_script} ]; then\n    source {completion_script}\nfi")
-            
-            if needs_update:
-                try:
-                    with open(bashrc, 'a') as f:
-                        f.write("\n")
-                        for update in updates:
-                            f.write(update + "\n")
-                    print_colored(Colors.GREEN, "✅ .bashrc обновлен")
-                except (PermissionError, IOError) as e:
-                    print_colored(Colors.YELLOW, f"⚠️  Не удалось автоматически обновить .bashrc: {e}")
-                    print_colored(Colors.BLUE, "\n📝 Добавьте вручную в ~/.bashrc:")
-                    for update in updates:
-                        print_colored(Colors.BLUE, f"   {update}")
-            else:
-                print_colored(Colors.YELLOW, "⚠️  Настройки уже присутствуют в .bashrc")
-        except (PermissionError, IOError) as e:
-            print_colored(Colors.YELLOW, f"⚠️  Не удалось прочитать .bashrc: {e}")
-            print_colored(Colors.BLUE, "\n📝 Добавьте вручную в ~/.bashrc:")
-            print_colored(Colors.BLUE, f"   export PATH=\"$HOME/.local/bin:$PATH\"")
-            print_colored(Colors.BLUE, f"   source {completion_script}")
+        print_colored(Colors.BLUE, "   Настраиваю для Bash...")
+        setup_shell_completion("bash", bashrc, completion_script)
     else:
-        print_colored(Colors.YELLOW, "⚠️  .bashrc не найден")
-        print_colored(Colors.BLUE, "\n📝 Создайте ~/.bashrc и добавьте:")
+        print_colored(Colors.YELLOW, "   .bashrc не найден, пропускаю настройку для Bash")
+    
+    # Настраиваем для ZSH
+    zshrc = home / ".zshrc"
+    if zshrc.exists():
+        print_colored(Colors.BLUE, "   Настраиваю для ZSH...")
+        setup_shell_completion("zsh", zshrc, completion_script)
+    else:
+        print_colored(Colors.YELLOW, "   .zshrc не найден, пропускаю настройку для ZSH")
+    
+    # Если ни одна оболочка не настроена, выводим инструкции
+    if not bashrc.exists() and not zshrc.exists():
+        print_colored(Colors.YELLOW, "⚠️  Не найдены файлы конфигурации оболочек")
+        print_colored(Colors.BLUE, "\n📝 Добавьте вручную в ваш ~/.bashrc или ~/.zshrc:")
         print_colored(Colors.BLUE, f"   export PATH=\"$HOME/.local/bin:$PATH\"")
+        if zshrc.exists() or os.environ.get('SHELL', '').endswith('zsh'):
+            print_colored(Colors.BLUE, "   autoload -U +X bashcompinit && bashcompinit")
         print_colored(Colors.BLUE, f"   source {completion_script}")
 
 
@@ -274,49 +325,61 @@ def create_config():
     print_colored(Colors.GREEN, f"✅ Конфиг создан: {config_file}")
 
 
-def create_aliases():
-    """Создает алиасы в .bashrc"""
-    home = Path.home()
-    bashrc = home / ".bashrc"
-    
-    if not bashrc.exists():
-        print_colored(Colors.YELLOW, "⚠️  .bashrc не найден, алиасы не созданы")
-        print_colored(Colors.BLUE, "   Добавьте вручную в ~/.bashrc:")
-        print_colored(Colors.BLUE, "   alias sshl='sshgo list'")
-        print_colored(Colors.BLUE, "   alias sshm='sshgo'")
-        print_colored(Colors.BLUE, "   alias sshctl='sshgo'")
-        return
+def create_aliases_in_rc(rc_file: Path):
+    """Создает алиасы в файле конфигурации оболочки"""
+    if not rc_file.exists():
+        return False
     
     try:
-        with open(bashrc, 'r') as f:
-            bashrc_content = f.read()
+        with open(rc_file, 'r') as f:
+            rc_content = f.read()
         
-        if "# SSH Connection Manager alias" in bashrc_content:
-            print_colored(Colors.YELLOW, "⚠️  Алиасы уже созданы")
-            return
-        
-        print_colored(Colors.BLUE, "🔗 Создаю удобные алиасы...")
+        if "# SSH Connection Manager alias" in rc_content:
+            return True  # Алиасы уже есть
         
         try:
-            with open(bashrc, 'a') as f:
+            with open(rc_file, 'a') as f:
                 f.write("\n# SSH Connection Manager alias\n")
                 f.write("alias sshl='sshgo list'\n")
                 f.write("alias sshm='sshgo'\n")
                 f.write("alias sshctl='sshgo'\n")
             
-            print_colored(Colors.GREEN, "✅ Алиасы созданы:")
-            print_colored(Colors.BLUE, "   • sshl   - показать список серверов")
-            print_colored(Colors.BLUE, "   • sshm   - открыть меню")
-            print_colored(Colors.BLUE, "   • sshctl - управление серверами")
+            return True
         except (PermissionError, IOError) as e:
-            print_colored(Colors.YELLOW, f"⚠️  Не удалось создать алиасы: {e}")
-            print_colored(Colors.BLUE, "   Добавьте вручную в ~/.bashrc:")
-            print_colored(Colors.BLUE, "   alias sshl='sshgo list'")
-            print_colored(Colors.BLUE, "   alias sshm='sshgo'")
-            print_colored(Colors.BLUE, "   alias sshctl='sshgo'")
+            print_colored(Colors.YELLOW, f"⚠️  Не удалось создать алиасы в {rc_file.name}: {e}")
+            return False
     except (PermissionError, IOError) as e:
-        print_colored(Colors.YELLOW, f"⚠️  Не удалось прочитать .bashrc: {e}")
-        print_colored(Colors.BLUE, "   Добавьте вручную в ~/.bashrc:")
+        print_colored(Colors.YELLOW, f"⚠️  Не удалось прочитать {rc_file.name}: {e}")
+        return False
+
+
+def create_aliases():
+    """Создает алиасы в .bashrc и .zshrc"""
+    home = Path.home()
+    bashrc = home / ".bashrc"
+    zshrc = home / ".zshrc"
+    
+    aliases_created = False
+    
+    # Создаем алиасы в Bash
+    if bashrc.exists():
+        if create_aliases_in_rc(bashrc):
+            aliases_created = True
+    
+    # Создаем алиасы в ZSH
+    if zshrc.exists():
+        if create_aliases_in_rc(zshrc):
+            aliases_created = True
+    
+    if aliases_created:
+        print_colored(Colors.BLUE, "🔗 Создаю удобные алиасы...")
+        print_colored(Colors.GREEN, "✅ Алиасы созданы:")
+        print_colored(Colors.BLUE, "   • sshl   - показать список серверов")
+        print_colored(Colors.BLUE, "   • sshm   - открыть меню")
+        print_colored(Colors.BLUE, "   • sshctl - управление серверами")
+    elif not bashrc.exists() and not zshrc.exists():
+        print_colored(Colors.YELLOW, "⚠️  Не найдены файлы конфигурации оболочек, алиасы не созданы")
+        print_colored(Colors.BLUE, "   Добавьте вручную в ~/.bashrc или ~/.zshrc:")
         print_colored(Colors.BLUE, "   alias sshl='sshgo list'")
         print_colored(Colors.BLUE, "   alias sshm='sshgo'")
         print_colored(Colors.BLUE, "   alias sshctl='sshgo'")
@@ -338,7 +401,12 @@ def show_usage():
     print("   server1|ssh|192.168.1.10|22|user|password|")
     print("3. Используйте: sshgo list для просмотра списка")
     print()
-    print_colored(Colors.YELLOW, "💡 Перезагрузите терминал или выполните: source ~/.bashrc")
+    # Определяем текущую оболочку
+    current_shell = os.environ.get('SHELL', '')
+    if 'zsh' in current_shell:
+        print_colored(Colors.YELLOW, "💡 Перезагрузите терминал или выполните: source ~/.zshrc")
+    else:
+        print_colored(Colors.YELLOW, "💡 Перезагрузите терминал или выполните: source ~/.bashrc")
 
 
 def uninstall():
@@ -389,55 +457,73 @@ def uninstall():
         completion_script.unlink()
         print_colored(Colors.GREEN, "✅ Completion скрипт удален")
     
-    # Удаляем строки из .bashrc
-    bashrc = home / ".bashrc"
-    if bashrc.exists():
-        with open(bashrc, 'r') as f:
-            lines = f.readlines()
+    # Удаляем строки из .bashrc и .zshrc
+    def clean_rc_file(rc_file: Path):
+        """Очищает файл конфигурации оболочки от настроек sshgo"""
+        if not rc_file.exists():
+            return False
         
-        new_lines = []
-        skip_block = False
-        completion_patterns = [
-            "sshgo-completion",
-            "SSH Connection Manager",
-            "alias sshl",
-            "alias sshm",
-            "alias sshctl"
-        ]
-        
-        for i, line in enumerate(lines):
-            # Пропускаем строки, связанные с sshgo
-            should_skip = False
-            for pattern in completion_patterns:
-                if pattern in line:
-                    should_skip = True
-                    skip_block = True
-                    break
+        try:
+            with open(rc_file, 'r') as f:
+                lines = f.readlines()
             
-            # Пропускаем пустые строки после блока sshgo
-            if skip_block and line.strip() == "":
-                continue
+            new_lines = []
+            skip_block = False
+            completion_patterns = [
+                "sshgo-completion",
+                "SSH Connection Manager",
+                "alias sshl",
+                "alias sshm",
+                "alias sshctl",
+                "bashcompinit"  # Для ZSH
+            ]
             
-            # Пропускаем лишние fi после блока sshgo
-            if skip_block and line.strip() == "fi" and i > 0:
-                # Проверяем, есть ли соответствующий if выше
-                prev_lines = [l.strip() for l in lines[max(0, i-10):i]]
-                if "if" not in " ".join(prev_lines) or prev_lines.count("if") <= prev_lines.count("fi"):
-                    skip_block = False
+            for i, line in enumerate(lines):
+                # Пропускаем строки, связанные с sshgo
+                should_skip = False
+                for pattern in completion_patterns:
+                    if pattern in line:
+                        should_skip = True
+                        skip_block = True
+                        break
+                
+                # Пропускаем пустые строки после блока sshgo
+                if skip_block and line.strip() == "":
                     continue
+                
+                # Пропускаем лишние fi после блока sshgo
+                if skip_block and line.strip() == "fi" and i > 0:
+                    # Проверяем, есть ли соответствующий if выше
+                    prev_lines = [l.strip() for l in lines[max(0, i-10):i]]
+                    if "if" not in " ".join(prev_lines) or prev_lines.count("if") <= prev_lines.count("fi"):
+                        skip_block = False
+                        continue
+                
+                # Завершаем пропуск блока при встрече обычной строки
+                if skip_block and line.strip() and not any(p in line for p in completion_patterns):
+                    if not line.strip().startswith("fi"):
+                        skip_block = False
+                
+                if not should_skip and not (skip_block and line.strip() == "fi"):
+                    new_lines.append(line)
             
-            # Завершаем пропуск блока при встрече обычной строки
-            if skip_block and line.strip() and not any(p in line for p in completion_patterns):
-                if not line.strip().startswith("fi"):
-                    skip_block = False
+            with open(rc_file, 'w') as f:
+                f.writelines(new_lines)
             
-            if not should_skip and not (skip_block and line.strip() == "fi"):
-                new_lines.append(line)
-        
-        with open(bashrc, 'w') as f:
-            f.writelines(new_lines)
-        
+            return True
+        except (PermissionError, IOError) as e:
+            print_colored(Colors.YELLOW, f"⚠️  Не удалось очистить {rc_file.name}: {e}")
+            return False
+    
+    # Очищаем .bashrc
+    bashrc = home / ".bashrc"
+    if bashrc.exists() and clean_rc_file(bashrc):
         print_colored(Colors.GREEN, "✅ .bashrc очищен")
+    
+    # Очищаем .zshrc
+    zshrc = home / ".zshrc"
+    if zshrc.exists() and clean_rc_file(zshrc):
+        print_colored(Colors.GREEN, "✅ .zshrc очищен")
     
     config_file = home / ".config" / "sshgo" / "connections.conf"
     print_colored(Colors.BLUE, f"📁 Конфиг сохранен: {config_file}")

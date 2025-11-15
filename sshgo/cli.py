@@ -3,7 +3,9 @@
 """
 
 import sys
+import os
 import argparse
+from pathlib import Path
 from typing import Optional, List
 try:
     import argcomplete
@@ -282,6 +284,58 @@ class SSHGoCLI:
             print(f"Отключились от {server.name}")
             input("Нажмите Enter для продолжения...")
     
+    def setup_completion(self):
+        """Настраивает completion для текущей оболочки"""
+        # Импортируем функции из install.py
+        try:
+            # Добавляем путь к install.py в sys.path
+            install_path = Path(__file__).parent.parent.parent / "install.py"
+            if not install_path.exists():
+                print_colored(Colors.RED, "❌ Не найден install.py")
+                return
+            
+            # Импортируем модуль install
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("install", install_path)
+            install_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(install_module)
+            
+            # Используем функции из install.py
+            home = Path.home()
+            completion_script = install_module.create_completion_script()
+            
+            # Определяем текущую оболочку
+            current_shell = os.environ.get('SHELL', '')
+            shell_name = "zsh" if 'zsh' in current_shell else "bash"
+            
+            # Настраиваем для текущей оболочки
+            if shell_name == "zsh":
+                rc_file = home / ".zshrc"
+            else:
+                rc_file = home / ".bashrc"
+            
+            if not rc_file.exists():
+                print_colored(Colors.YELLOW, f"⚠️  {rc_file.name} не найден")
+                print_colored(Colors.BLUE, f"   Создайте файл ~/{rc_file.name} и запустите команду снова")
+                return
+            
+            print_colored(Colors.BLUE, f"🔧 Настраиваю completion для {shell_name.upper()}...")
+            success = install_module.setup_shell_completion(shell_name, rc_file, completion_script)
+            
+            if success:
+                print_colored(Colors.GREEN, f"✅ Completion настроен для {shell_name.upper()}!")
+                print_colored(Colors.BLUE, f"💡 Выполните: source ~/{rc_file.name}")
+            else:
+                print_colored(Colors.YELLOW, f"⚠️  Не удалось настроить completion автоматически")
+                print_colored(Colors.BLUE, f"   Добавьте вручную в ~/{rc_file.name}:")
+                if shell_name == "zsh":
+                    print_colored(Colors.BLUE, "   autoload -U +X bashcompinit && bashcompinit")
+                print_colored(Colors.BLUE, f"   source {completion_script}")
+        except Exception as e:
+            print_colored(Colors.RED, f"❌ Ошибка при настройке completion: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def show_help(self):
         """Показывает справку"""
         print_colored(Colors.BLUE, "🚀 SSH Connection Manager - sshgo")
@@ -303,6 +357,7 @@ class SSHGoCLI:
         print("  sshgo show <name>        - информация о сервере")
         print()
         print("Другое:")
+        print("  sshgo setup-completion   - настроить автодополнение")
         print("  sshgo help               - эта справка")
         print()
         print("Примеры:")
@@ -416,6 +471,9 @@ def main():
     else:
         show_parser.add_argument('name', help='Имя сервера', choices=server_names if server_names else None)
     
+    # Команда setup-completion
+    subparsers.add_parser('setup-completion', help='Настроить автодополнение для текущей оболочки')
+    
     # Команда help
     subparsers.add_parser('help', help='Показать справку')
     
@@ -429,7 +487,7 @@ def main():
         return
     
     # Список известных команд
-    known_commands = ['list', 'add', 'remove', 'rm', 'edit', 'show', 'help', '--help', '-h']
+    known_commands = ['list', 'add', 'remove', 'rm', 'edit', 'show', 'setup-completion', 'help', '--help', '-h']
     
     # Если первый аргумент не известная команда, проверяем, является ли он именем сервера
     if len(sys.argv) > 1 and sys.argv[1] not in known_commands:
@@ -485,6 +543,8 @@ def main():
             cli.show_server(args.name)
         else:
             print_colored(Colors.RED, "❌ Использование: sshgo show <name>")
+    elif args.command == 'setup-completion':
+        cli.setup_completion()
     elif args.command == 'help':
         cli.show_help()
 
