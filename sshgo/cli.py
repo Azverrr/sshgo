@@ -5,7 +5,6 @@
 import sys
 import os
 import argparse
-import shutil
 from pathlib import Path
 from typing import Optional, List
 try:
@@ -17,6 +16,7 @@ except ImportError:
 from .config import ConfigManager, Server
 from .connection import SSHConnection
 from .menu import Menu
+from .completion import CompletionManager, get_server_names, server_completer
 from .utils import (
     Colors, print_colored, validate_server_data,
     read_password_with_confirmation, show_server_summary
@@ -30,6 +30,7 @@ class SSHGoCLI:
         self.config_manager = ConfigManager()
         self.connection = SSHConnection()
         self.menu = Menu(self.config_manager)
+        self.completion_manager = CompletionManager()
     
     def list_servers(self):
         """Показывает список серверов"""
@@ -285,166 +286,9 @@ class SSHGoCLI:
             print(f"Отключились от {server.name}")
             input("Нажмите Enter для продолжения...")
     
-    def _get_sshgo_path(self):
-        """Определяет путь к sshgo"""
-        home = Path.home()
-        user_bin = home / ".local" / "bin"
-        sshgo_path = user_bin / "sshgo"
-        
-        if not sshgo_path.exists():
-            # Пробуем найти в PATH
-            sshgo_cmd = shutil.which("sshgo")
-            if sshgo_cmd:
-                sshgo_path = Path(sshgo_cmd)
-            else:
-                sshgo_path = Path("sshgo")  # Будет искать в PATH
-        
-        return sshgo_path
-    
-    def _create_completion_script(self):
-        """Создает скрипт completion для bash/zsh"""
-        home = Path.home()
-        bash_completion_dir = home / ".bash_completion.d"
-        bash_completion_dir.mkdir(exist_ok=True)
-        
-        completion_script = bash_completion_dir / "sshgo-completion.sh"
-        sshgo_path = self._get_sshgo_path()
-        
-        with open(completion_script, 'w') as f:
-            f.write(f"""# SSH Connection Manager - Auto-completion
-# Путь к sshgo: {sshgo_path}
-
-# Функция автодополнения (работает всегда, даже без argcomplete)
-_sshgo_completion() {{
-    local cur prev
-    COMPREPLY=()
-    cur="${{COMP_WORDS[COMP_CWORD]}}"
-    prev="${{COMP_WORDS[COMP_CWORD-1]}}"
-    
-    # Если это первый аргумент после sshgo, предлагаем только серверы
-    if [ $COMP_CWORD -eq 1 ]; then
-        local config_file="${{SSH_CONFIG_FILE:-$HOME/.config/sshgo/connections.conf}}"
-        
-        if [ -f "$config_file" ]; then
-            local servers=$(grep -v '^#' "$config_file" | grep -v '^$' | cut -d'|' -f1 2>/dev/null | tr '\\n' ' ')
-            COMPREPLY=( $(compgen -W "$servers" -- "$cur") )
-        else
-            COMPREPLY=()
-        fi
-    # Если это команда remove/edit/show, предлагаем только серверы
-    elif [ "$prev" = "remove" ] || [ "$prev" = "rm" ] || [ "$prev" = "edit" ] || [ "$prev" = "show" ]; then
-        local config_file="${{SSH_CONFIG_FILE:-$HOME/.config/sshgo/connections.conf}}"
-        if [ -f "$config_file" ]; then
-            local servers=$(grep -v '^#' "$config_file" | grep -v '^$' | cut -d'|' -f1 2>/dev/null | tr '\\n' ' ')
-            COMPREPLY=( $(compgen -W "$servers" -- "$cur") )
-        fi
-    fi
-    
-    return 0
-}}
-
-# Регистрируем completion
-# НЕ используем argcomplete, так как он показывает команды
-# Используем только нашу функцию, которая показывает только серверы
-complete -F _sshgo_completion sshgo
-""")
-        
-        completion_script.chmod(0o644)
-        return completion_script
-    
-    def _setup_shell_completion(self, shell_name: str, rc_file: Path, completion_script: Path):
-        """Настраивает completion для конкретной оболочки"""
-        if not rc_file.exists():
-            return False
-        
-        try:
-            with open(rc_file, 'r') as f:
-                rc_content = f.read()
-            
-            completion_line = f"source {completion_script}"
-            path_line = 'export PATH="$HOME/.local/bin:$PATH"'
-            
-            needs_update = False
-            updates = []
-            
-            # Проверяем, нужно ли добавить PATH
-            if path_line not in rc_content and "$HOME/.local/bin" not in rc_content:
-                needs_update = True
-                updates.append(f"# Add user bin to PATH\n{path_line}")
-            
-            # Проверяем, нужно ли добавить completion
-            if completion_line not in rc_content:
-                needs_update = True
-                if shell_name == "zsh":
-                    # Для ZSH нужен bashcompinit
-                    updates.append(f"""# SSH Connection Manager - Auto-completion
-# Enable bash completion compatibility for ZSH
-autoload -U +X bashcompinit && bashcompinit
-if [ -f {completion_script} ]; then
-    source {completion_script}
-fi""")
-                else:
-                    # Для Bash просто source
-                    updates.append(f"# SSH Connection Manager - Auto-completion\nif [ -f {completion_script} ]; then\n    source {completion_script}\nfi")
-            
-            if needs_update:
-                try:
-                    with open(rc_file, 'a') as f:
-                        f.write("\n")
-                        for update in updates:
-                            f.write(update + "\n")
-                    print_colored(Colors.GREEN, f"✅ {rc_file.name} обновлен")
-                    return True
-                except (PermissionError, IOError) as e:
-                    print_colored(Colors.YELLOW, f"⚠️  Не удалось автоматически обновить {rc_file.name}: {e}")
-                    print_colored(Colors.BLUE, f"\n📝 Добавьте вручную в ~/{rc_file.name}:")
-                    for update in updates:
-                        print_colored(Colors.BLUE, f"   {update}")
-                    return False
-            else:
-                print_colored(Colors.YELLOW, f"⚠️  Настройки уже присутствуют в {rc_file.name}")
-                return True
-        except (PermissionError, IOError) as e:
-            print_colored(Colors.YELLOW, f"⚠️  Не удалось прочитать {rc_file.name}: {e}")
-            return False
-    
     def setup_completion(self):
         """Настраивает completion для текущей оболочки"""
-        try:
-            home = Path.home()
-            completion_script = self._create_completion_script()
-            
-            # Определяем текущую оболочку
-            current_shell = os.environ.get('SHELL', '')
-            shell_name = "zsh" if 'zsh' in current_shell else "bash"
-            
-            # Настраиваем для текущей оболочки
-            if shell_name == "zsh":
-                rc_file = home / ".zshrc"
-            else:
-                rc_file = home / ".bashrc"
-            
-            if not rc_file.exists():
-                print_colored(Colors.YELLOW, f"⚠️  {rc_file.name} не найден")
-                print_colored(Colors.BLUE, f"   Создайте файл ~/{rc_file.name} и запустите команду снова")
-                return
-            
-            print_colored(Colors.BLUE, f"🔧 Настраиваю completion для {shell_name.upper()}...")
-            success = self._setup_shell_completion(shell_name, rc_file, completion_script)
-            
-            if success:
-                print_colored(Colors.GREEN, f"✅ Completion настроен для {shell_name.upper()}!")
-                print_colored(Colors.BLUE, f"💡 Выполните: source ~/{rc_file.name}")
-            else:
-                print_colored(Colors.YELLOW, f"⚠️  Не удалось настроить completion автоматически")
-                print_colored(Colors.BLUE, f"   Добавьте вручную в ~/{rc_file.name}:")
-                if shell_name == "zsh":
-                    print_colored(Colors.BLUE, "   autoload -U +X bashcompinit && bashcompinit")
-                print_colored(Colors.BLUE, f"   source {completion_script}")
-        except Exception as e:
-            print_colored(Colors.RED, f"❌ Ошибка при настройке completion: {e}")
-            import traceback
-            traceback.print_exc()
+        self.completion_manager.setup_completion(setup_all_shells=False)
     
     def show_help(self):
         """Показывает справку"""
@@ -476,48 +320,6 @@ fi""")
         print("  sshgo prod-server")
 
 
-# Кэш для списка серверов (для автодополнения)
-_server_names_cache = None
-_server_names_cache_file = None
-
-def get_server_names() -> List[str]:
-    """Получает список имен серверов для автодополнения (с кэшированием)"""
-    global _server_names_cache, _server_names_cache_file
-    
-    try:
-        config_manager = ConfigManager()
-        config_file = config_manager.config_file
-        
-        # Проверяем кэш
-        if _server_names_cache is not None and _server_names_cache_file == str(config_file):
-            # Проверяем, не изменился ли файл
-            if config_file.exists():
-                try:
-                    mtime = config_file.stat().st_mtime
-                    if hasattr(get_server_names, '_cache_mtime') and get_server_names._cache_mtime == mtime:
-                        return _server_names_cache
-                    get_server_names._cache_mtime = mtime
-                except (OSError, AttributeError):
-                    pass
-        
-        # Обновляем кэш
-        _server_names_cache = config_manager.get_server_names()
-        _server_names_cache_file = str(config_file)
-        return _server_names_cache
-    except Exception:
-        return []
-
-
-def server_completer(prefix, parsed_args, **kwargs):
-    """Completer для автодополнения имен серверов"""
-    try:
-        server_names = get_server_names()
-        # Фильтруем по префиксу если есть
-        if prefix:
-            return [s for s in server_names if s.startswith(prefix)]
-        return server_names
-    except Exception:
-        return []
 
 
 def main():

@@ -32,6 +32,133 @@ def check_python_version():
     print_colored(Colors.GREEN, f"✅ Python {sys.version_info.major}.{sys.version_info.minor}")
 
 
+def find_pth_files():
+    """Находит .pth файлы, содержащие путь к проекту"""
+    pth_files = []
+    home = Path.home()
+    project_dir = Path(__file__).parent.absolute()
+    
+    # Проверяем пользовательские site-packages
+    for site_packages in home.glob(".local/lib/python*/site-packages"):
+        for pth_file in site_packages.glob("*.pth"):
+            try:
+                content = pth_file.read_text()
+                if str(project_dir) in content:
+                    pth_files.append(pth_file)
+            except (IOError, PermissionError):
+                pass
+    
+    return pth_files
+
+
+def check_existing_installation():
+    """Проверяет наличие существующих установок"""
+    conflicts = []
+    warnings = []
+    
+    # Проверяем системную установку через пакетный менеджер
+    system_sshgo = Path("/usr/bin/sshgo")
+    if system_sshgo.exists():
+        conflicts.append({
+            "type": "DEB/RPM package",
+            "path": str(system_sshgo),
+            "severity": "high"
+        })
+    
+    # Проверяем пользовательскую установку
+    user_sshgo = Path.home() / ".local" / "bin" / "sshgo"
+    if user_sshgo.exists():
+        conflicts.append({
+            "type": "pip/install.py",
+            "path": str(user_sshgo),
+            "severity": "high"
+        })
+    
+    # Проверяем .pth файлы (режим разработки)
+    pth_files = find_pth_files()
+    if pth_files:
+        conflicts.append({
+            "type": "development mode (.pth)",
+            "path": ", ".join(str(p) for p in pth_files),
+            "severity": "high"
+        })
+    
+    # Проверяем наличие completion скриптов
+    user_completion = Path.home() / ".bash_completion.d" / "sshgo-completion.sh"
+    system_completion = Path("/etc/bash_completion.d/sshgo")
+    if user_completion.exists() and system_completion.exists():
+        warnings.append("Обнаружены оба completion скрипта (пользовательский и системный)")
+    
+    return conflicts, warnings
+
+
+def check_version_conflict():
+    """Проверяет версию существующей установки"""
+    try:
+        # Читаем версию из setup.py
+        setup_file = Path(__file__).parent / "setup.py"
+        if not setup_file.exists():
+            return None, None
+        
+        content = setup_file.read_text()
+        import re
+        match = re.search(r'version=["\']([^"\']+)["\']', content)
+        if not match:
+            return None, None
+        
+        new_version = match.group(1)
+        
+        # Пробуем получить версию из установленного пакета через pip
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "show", "sshgo"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Ищем строку Version: в выводе pip show
+                for line in result.stdout.splitlines():
+                    if line.startswith("Version:"):
+                        installed_version = line.split(":", 1)[1].strip()
+                        if installed_version != new_version:
+                            return installed_version, new_version
+                        break
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+        
+        # Пробуем получить версию из установленного модуля
+        try:
+            import importlib.util
+            # Пробуем загрузить установленный модуль
+            spec = importlib.util.find_spec("sshgo")
+            if spec and spec.origin:
+                # Пробуем прочитать версию из __init__.py или PKG-INFO
+                pkg_dir = Path(spec.origin).parent
+                pkg_info = pkg_dir.parent / f"sshgo-{new_version}.egg-info" / "PKG-INFO"
+                if not pkg_info.exists():
+                    # Ищем в dist-packages
+                    for dist_dir in Path("/usr/lib/python3").glob("*/dist-packages/sshgo*.egg-info"):
+                        pkg_info = dist_dir / "PKG-INFO"
+                        if pkg_info.exists():
+                            break
+                
+                if pkg_info.exists():
+                    content = pkg_info.read_text()
+                    match = re.search(r'^Version:\s*(.+)$', content, re.MULTILINE)
+                    if match:
+                        installed_version = match.group(1).strip()
+                        if installed_version != new_version:
+                            return installed_version, new_version
+        except (ImportError, AttributeError, IOError):
+            pass
+            
+    except (IOError, PermissionError):
+        pass
+    
+    return None, None
+
+
 def install_package():
     """Устанавливает пакет через pip или напрямую"""
     print_colored(Colors.BLUE, "📦 Устанавливаю SSH Connection Manager...")
@@ -129,171 +256,18 @@ if __name__ == "__main__":
         print_colored(Colors.BLUE, f"   Добавьте в ~/.bashrc: export PATH=\"$HOME/.local/bin:$PATH\"")
 
 
-def get_sshgo_path():
-    """Определяет путь к sshgo"""
-    home = Path.home()
-    user_bin = home / ".local" / "bin"
-    sshgo_path = user_bin / "sshgo"
-    
-    if not sshgo_path.exists():
-        # Пробуем найти в PATH
-        sshgo_cmd = shutil.which("sshgo")
-        if sshgo_cmd:
-            sshgo_path = Path(sshgo_cmd)
-        else:
-            sshgo_path = Path("sshgo")  # Будет искать в PATH
-    
-    return sshgo_path
-
-
-def create_completion_script():
-    """Создает скрипт completion для bash/zsh"""
-    home = Path.home()
-    bash_completion_dir = home / ".bash_completion.d"
-    bash_completion_dir.mkdir(exist_ok=True)
-    
-    completion_script = bash_completion_dir / "sshgo-completion.sh"
-    sshgo_path = get_sshgo_path()
-    
-    with open(completion_script, 'w') as f:
-        f.write(f"""# SSH Connection Manager - Auto-completion
-# Путь к sshgo: {sshgo_path}
-
-# Функция автодополнения (работает всегда, даже без argcomplete)
-_sshgo_completion() {{
-    local cur prev
-    COMPREPLY=()
-    cur="${{COMP_WORDS[COMP_CWORD]}}"
-    prev="${{COMP_WORDS[COMP_CWORD-1]}}"
-    
-    # Если это первый аргумент после sshgo, предлагаем только серверы
-    if [ $COMP_CWORD -eq 1 ]; then
-        local config_file="${{SSH_CONFIG_FILE:-$HOME/.config/sshgo/connections.conf}}"
-        
-        if [ -f "$config_file" ]; then
-            local servers=$(grep -v '^#' "$config_file" | grep -v '^$' | cut -d'|' -f1 2>/dev/null | tr '\\n' ' ')
-            COMPREPLY=( $(compgen -W "$servers" -- "$cur") )
-        else
-            COMPREPLY=()
-        fi
-    # Если это команда remove/edit/show, предлагаем только серверы
-    elif [ "$prev" = "remove" ] || [ "$prev" = "rm" ] || [ "$prev" = "edit" ] || [ "$prev" = "show" ]; then
-        local config_file="${{SSH_CONFIG_FILE:-$HOME/.config/sshgo/connections.conf}}"
-        if [ -f "$config_file" ]; then
-            local servers=$(grep -v '^#' "$config_file" | grep -v '^$' | cut -d'|' -f1 2>/dev/null | tr '\\n' ' ')
-            COMPREPLY=( $(compgen -W "$servers" -- "$cur") )
-        fi
-    fi
-    
-    return 0
-}}
-
-# Регистрируем completion
-# НЕ используем argcomplete, так как он показывает команды
-# Используем только нашу функцию, которая показывает только серверы
-complete -F _sshgo_completion sshgo
-""")
-    
-    completion_script.chmod(0o644)
-    return completion_script
-
-
-def setup_shell_completion(shell_name: str, rc_file: Path, completion_script: Path):
-    """
-    Настраивает completion для конкретной оболочки
-    
-    Args:
-        shell_name: Имя оболочки ('bash' или 'zsh')
-        rc_file: Путь к файлу конфигурации (.bashrc или .zshrc)
-        completion_script: Путь к скрипту completion
-    """
-    if not rc_file.exists():
-        return False
-    
-    try:
-        with open(rc_file, 'r') as f:
-            rc_content = f.read()
-        
-        completion_line = f"source {completion_script}"
-        path_line = 'export PATH="$HOME/.local/bin:$PATH"'
-        
-        needs_update = False
-        updates = []
-        
-        # Проверяем, нужно ли добавить PATH
-        if path_line not in rc_content and "$HOME/.local/bin" not in rc_content:
-            needs_update = True
-            updates.append(f"# Add user bin to PATH\n{path_line}")
-        
-        # Проверяем, нужно ли добавить completion
-        if completion_line not in rc_content:
-            needs_update = True
-            if shell_name == "zsh":
-                # Для ZSH нужен bashcompinit
-                updates.append(f"""# SSH Connection Manager - Auto-completion
-# Enable bash completion compatibility for ZSH
-autoload -U +X bashcompinit && bashcompinit
-if [ -f {completion_script} ]; then
-    source {completion_script}
-fi""")
-            else:
-                # Для Bash просто source
-                updates.append(f"# SSH Connection Manager - Auto-completion\nif [ -f {completion_script} ]; then\n    source {completion_script}\nfi")
-        
-        if needs_update:
-            try:
-                with open(rc_file, 'a') as f:
-                    f.write("\n")
-                    for update in updates:
-                        f.write(update + "\n")
-                print_colored(Colors.GREEN, f"✅ {rc_file.name} обновлен")
-                return True
-            except (PermissionError, IOError) as e:
-                print_colored(Colors.YELLOW, f"⚠️  Не удалось автоматически обновить {rc_file.name}: {e}")
-                print_colored(Colors.BLUE, f"\n📝 Добавьте вручную в ~/{rc_file.name}:")
-                for update in updates:
-                    print_colored(Colors.BLUE, f"   {update}")
-                return False
-        else:
-            print_colored(Colors.YELLOW, f"⚠️  Настройки уже присутствуют в {rc_file.name}")
-            return True
-    except (PermissionError, IOError) as e:
-        print_colored(Colors.YELLOW, f"⚠️  Не удалось прочитать {rc_file.name}: {e}")
-        return False
-
-
 def setup_completion():
     """Настраивает completion для всех доступных оболочек"""
-    print_colored(Colors.BLUE, "🔧 Настраиваю автодополнение...")
-    
-    home = Path.home()
-    completion_script = create_completion_script()
-    print_colored(Colors.GREEN, f"✅ Completion скрипт создан: {completion_script}")
-    
-    # Настраиваем для Bash
-    bashrc = home / ".bashrc"
-    if bashrc.exists():
-        print_colored(Colors.BLUE, "   Настраиваю для Bash...")
-        setup_shell_completion("bash", bashrc, completion_script)
-    else:
-        print_colored(Colors.YELLOW, "   .bashrc не найден, пропускаю настройку для Bash")
-    
-    # Настраиваем для ZSH
-    zshrc = home / ".zshrc"
-    if zshrc.exists():
-        print_colored(Colors.BLUE, "   Настраиваю для ZSH...")
-        setup_shell_completion("zsh", zshrc, completion_script)
-    else:
-        print_colored(Colors.YELLOW, "   .zshrc не найден, пропускаю настройку для ZSH")
-    
-    # Если ни одна оболочка не настроена, выводим инструкции
-    if not bashrc.exists() and not zshrc.exists():
-        print_colored(Colors.YELLOW, "⚠️  Не найдены файлы конфигурации оболочек")
-        print_colored(Colors.BLUE, "\n📝 Добавьте вручную в ваш ~/.bashrc или ~/.zshrc:")
-        print_colored(Colors.BLUE, f"   export PATH=\"$HOME/.local/bin:$PATH\"")
-        if zshrc.exists() or os.environ.get('SHELL', '').endswith('zsh'):
-            print_colored(Colors.BLUE, "   autoload -U +X bashcompinit && bashcompinit")
-        print_colored(Colors.BLUE, f"   source {completion_script}")
+    # Импортируем здесь, чтобы избежать циклических зависимостей
+    # при установке пакета
+    try:
+        from sshgo.completion import CompletionManager
+        manager = CompletionManager()
+        manager.setup_completion(setup_all_shells=True)
+    except ImportError:
+        # Если модуль еще не установлен, используем старый способ
+        print_colored(Colors.YELLOW, "⚠️  Модуль sshgo не установлен, пропускаю настройку completion")
+        print_colored(Colors.BLUE, "   Запустите 'sshgo setup-completion' после установки")
 
 
 def create_config():
@@ -372,12 +346,40 @@ def uninstall():
         user_bin.unlink()
         print_colored(Colors.GREEN, "✅ Команда sshgo удалена")
     
+    # Проверяем наличие системной установки
+    system_sshgo = Path("/usr/bin/sshgo")
+    if system_sshgo.exists():
+        print_colored(Colors.YELLOW, "⚠️  Обнаружена системная установка через пакетный менеджер")
+        print_colored(Colors.BLUE, "   Для удаления используйте: sudo apt remove sshgo (или sudo rpm -e sshgo)")
+        print_colored(Colors.BLUE, "   Продолжаю удаление только пользовательской установки...")
+    
     # Удаляем egg-link и другие файлы
     import glob
     egg_links = list(Path(home / ".local" / "lib").glob("python*/site-packages/sshgo.egg-link"))
     for egg_link in egg_links:
         egg_link.unlink()
         print_colored(Colors.GREEN, f"✅ Egg-link удален: {egg_link}")
+    
+    # Удаляем .pth файлы (режим разработки)
+    pth_files = find_pth_files()
+    for pth_file in pth_files:
+        try:
+            # Удаляем строку с путем к проекту из .pth файла
+            content = pth_file.read_text()
+            project_dir = Path(__file__).parent.absolute()
+            lines = content.splitlines()
+            new_lines = [line for line in lines if str(project_dir) not in line]
+            
+            if new_lines:
+                # Если остались другие строки, обновляем файл
+                pth_file.write_text('\n'.join(new_lines) + '\n')
+                print_colored(Colors.GREEN, f"✅ Обновлен .pth файл: {pth_file}")
+            else:
+                # Если файл пустой, удаляем его
+                pth_file.unlink()
+                print_colored(Colors.GREEN, f"✅ Удален пустой .pth файл: {pth_file}")
+        except (IOError, PermissionError) as e:
+            print_colored(Colors.YELLOW, f"⚠️  Не удалось обработать .pth файл {pth_file}: {e}")
     
     # Удаляем директории пакета
     site_packages_dirs = list(Path(home / ".local" / "lib").glob("python*/site-packages/sshgo*"))
@@ -475,6 +477,48 @@ def main():
     print()
     
     check_python_version()
+    
+    # Проверяем наличие существующих установок
+    conflicts, warnings = check_existing_installation()
+    if conflicts:
+        print_colored(Colors.YELLOW, "\n⚠️  Обнаружены существующие установки:")
+        for conflict in conflicts:
+            print_colored(Colors.YELLOW, f"   • {conflict['type']}: {conflict['path']}")
+        
+        print_colored(Colors.BLUE, "\n💡 Рекомендации:")
+        for conflict in conflicts:
+            if conflict['type'] == "DEB/RPM package":
+                print_colored(Colors.BLUE, "   • Удалите пакет: sudo apt remove sshgo (или sudo rpm -e sshgo)")
+            elif conflict['type'] == "pip/install.py":
+                print_colored(Colors.BLUE, "   • Удалите пользовательскую установку: python3 install.py uninstall")
+            elif conflict['type'] == "development mode (.pth)":
+                print_colored(Colors.BLUE, "   • Удалите .pth файлы вручную или используйте: python3 install.py uninstall")
+        
+        print()
+        response = input("Продолжить установку? (y/N): ").strip().lower()
+        if response != 'y':
+            print_colored(Colors.YELLOW, "❌ Установка отменена")
+            sys.exit(0)
+        print()
+    
+    if warnings:
+        for warning in warnings:
+            print_colored(Colors.YELLOW, f"⚠️  {warning}")
+        print()
+    
+    # Проверяем версию
+    installed_version, new_version = check_version_conflict()
+    if installed_version and new_version:
+        print_colored(Colors.YELLOW, f"⚠️  Обнаружена установленная версия: {installed_version}")
+        print_colored(Colors.BLUE, f"   Устанавливаемая версия: {new_version}")
+        if installed_version > new_version:
+            print_colored(Colors.YELLOW, "   ⚠️  ВНИМАНИЕ: Вы устанавливаете более старую версию!")
+            response = input("Продолжить? (y/N): ").strip().lower()
+            if response != 'y':
+                print_colored(Colors.YELLOW, "❌ Установка отменена")
+                sys.exit(0)
+        print()
+    
     install_package()
     setup_completion()
     create_config()

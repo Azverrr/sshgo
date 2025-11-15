@@ -156,6 +156,37 @@ fi
 %preun
 # Удаление не требуется, но можно добавить очистку
 
+%postun
+# Очистка настроек после удаления пакета
+# Удаляем настройки из /etc/bashrc
+if [ -f /etc/bashrc ]; then
+    if grep -q "bash_completion.d/sshgo" /etc/bashrc 2>/dev/null; then
+        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' /etc/bashrc
+        sed -i '/bash_completion.d\/sshgo/d' /etc/bashrc
+    fi
+fi
+
+# Удаляем настройки из /etc/bash.bashrc
+if [ -f /etc/bash.bashrc ]; then
+    if grep -q "bash_completion.d/sshgo" /etc/bash.bashrc 2>/dev/null; then
+        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' /etc/bash.bashrc
+        sed -i '/bash_completion.d\/sshgo/d' /etc/bash.bashrc
+    fi
+fi
+
+# Удаляем настройки из пользовательского ~/.zshrc (если есть)
+if [ -n "$HOME" ] && [ -f "$HOME/.zshrc" ]; then
+    if grep -q "bash_completion.d/sshgo" "$HOME/.zshrc" 2>/dev/null; then
+        # Создаем резервную копию
+        cp "$HOME/.zshrc" "$HOME/.zshrc.sshgo.backup" 2>/dev/null || true
+        
+        # Удаляем блок настроек sshgo
+        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' "$HOME/.zshrc"
+        sed -i '/bash_completion.d\/sshgo/d' "$HOME/.zshrc"
+        sed -i '/bashcompinit.*sshgo/d' "$HOME/.zshrc"
+    fi
+fi
+
 %files
 %defattr(-,root,root,-)
 %{_bindir}/sshgo

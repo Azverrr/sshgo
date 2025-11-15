@@ -1,0 +1,48 @@
+#!/bin/sh
+# postrm script for sshgo
+
+set -e
+
+# Удаляем настройки из /etc/bash.bashrc
+if [ -f /etc/bash.bashrc ]; then
+    # Создаем временный файл без настроек sshgo
+    if grep -q "bash_completion.d/sshgo" /etc/bash.bashrc 2>/dev/null; then
+        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' /etc/bash.bashrc
+        sed -i '/bash_completion.d\/sshgo/d' /etc/bash.bashrc
+        echo "Настройки удалены из /etc/bash.bashrc"
+    fi
+fi
+
+# Удаляем настройки из /etc/bash.bashrc.local (если используется)
+if [ -f /etc/bash.bashrc.local ]; then
+    if grep -q "bash_completion.d/sshgo" /etc/bash.bashrc.local 2>/dev/null; then
+        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' /etc/bash.bashrc.local
+        sed -i '/bash_completion.d\/sshgo/d' /etc/bash.bashrc.local
+        echo "Настройки удалены из /etc/bash.bashrc.local"
+    fi
+fi
+
+# Удаляем настройки из пользовательского ~/.zshrc (если есть)
+if [ -n "$HOME" ] && [ -f "$HOME/.zshrc" ]; then
+    if grep -q "bash_completion.d/sshgo" "$HOME/.zshrc" 2>/dev/null; then
+        # Создаем резервную копию
+        cp "$HOME/.zshrc" "$HOME/.zshrc.sshgo.backup" 2>/dev/null || true
+        
+        # Удаляем блок настроек sshgo
+        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' "$HOME/.zshrc"
+        sed -i '/bash_completion.d\/sshgo/d' "$HOME/.zshrc"
+        sed -i '/bashcompinit.*sshgo/d' "$HOME/.zshrc"
+        
+        echo "Настройки удалены из $HOME/.zshrc"
+        echo "Резервная копия сохранена в $HOME/.zshrc.sshgo.backup"
+    fi
+fi
+
+# Обновляем кэш completion
+if command -v update-bash-completion >/dev/null 2>&1; then
+    update-bash-completion 2>/dev/null || true
+fi
+
+# DEBHELPER
+exit 0
+
