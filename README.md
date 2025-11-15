@@ -1,4 +1,4 @@
-# SSH Connection Manager - Python версия
+# SSH Connection Manager
 
 Удобный менеджер SSH подключений с интерактивным меню и автодополнением.
 
