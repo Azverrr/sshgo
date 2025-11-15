@@ -5,6 +5,7 @@
 import sys
 import os
 import argparse
+import shutil
 from pathlib import Path
 from typing import Optional, List
 try:
@@ -284,25 +285,134 @@ class SSHGoCLI:
             print(f"Отключились от {server.name}")
             input("Нажмите Enter для продолжения...")
     
+    def _get_sshgo_path(self):
+        """Определяет путь к sshgo"""
+        home = Path.home()
+        user_bin = home / ".local" / "bin"
+        sshgo_path = user_bin / "sshgo"
+        
+        if not sshgo_path.exists():
+            # Пробуем найти в PATH
+            sshgo_cmd = shutil.which("sshgo")
+            if sshgo_cmd:
+                sshgo_path = Path(sshgo_cmd)
+            else:
+                sshgo_path = Path("sshgo")  # Будет искать в PATH
+        
+        return sshgo_path
+    
+    def _create_completion_script(self):
+        """Создает скрипт completion для bash/zsh"""
+        home = Path.home()
+        bash_completion_dir = home / ".bash_completion.d"
+        bash_completion_dir.mkdir(exist_ok=True)
+        
+        completion_script = bash_completion_dir / "sshgo-completion.sh"
+        sshgo_path = self._get_sshgo_path()
+        
+        with open(completion_script, 'w') as f:
+            f.write(f"""# SSH Connection Manager - Auto-completion
+# Путь к sshgo: {sshgo_path}
+
+# Функция автодополнения (работает всегда, даже без argcomplete)
+_sshgo_completion() {{
+    local cur prev
+    COMPREPLY=()
+    cur="${{COMP_WORDS[COMP_CWORD]}}"
+    prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    
+    # Если это первый аргумент после sshgo, предлагаем только серверы
+    if [ $COMP_CWORD -eq 1 ]; then
+        local config_file="${{SSH_CONFIG_FILE:-$HOME/.config/sshgo/connections.conf}}"
+        
+        if [ -f "$config_file" ]; then
+            local servers=$(grep -v '^#' "$config_file" | grep -v '^$' | cut -d'|' -f1 2>/dev/null | tr '\\n' ' ')
+            COMPREPLY=( $(compgen -W "$servers" -- "$cur") )
+        else
+            COMPREPLY=()
+        fi
+    # Если это команда remove/edit/show, предлагаем только серверы
+    elif [ "$prev" = "remove" ] || [ "$prev" = "rm" ] || [ "$prev" = "edit" ] || [ "$prev" = "show" ]; then
+        local config_file="${{SSH_CONFIG_FILE:-$HOME/.config/sshgo/connections.conf}}"
+        if [ -f "$config_file" ]; then
+            local servers=$(grep -v '^#' "$config_file" | grep -v '^$' | cut -d'|' -f1 2>/dev/null | tr '\\n' ' ')
+            COMPREPLY=( $(compgen -W "$servers" -- "$cur") )
+        fi
+    fi
+    
+    return 0
+}}
+
+# Регистрируем completion
+# НЕ используем argcomplete, так как он показывает команды
+# Используем только нашу функцию, которая показывает только серверы
+complete -F _sshgo_completion sshgo
+""")
+        
+        completion_script.chmod(0o644)
+        return completion_script
+    
+    def _setup_shell_completion(self, shell_name: str, rc_file: Path, completion_script: Path):
+        """Настраивает completion для конкретной оболочки"""
+        if not rc_file.exists():
+            return False
+        
+        try:
+            with open(rc_file, 'r') as f:
+                rc_content = f.read()
+            
+            completion_line = f"source {completion_script}"
+            path_line = 'export PATH="$HOME/.local/bin:$PATH"'
+            
+            needs_update = False
+            updates = []
+            
+            # Проверяем, нужно ли добавить PATH
+            if path_line not in rc_content and "$HOME/.local/bin" not in rc_content:
+                needs_update = True
+                updates.append(f"# Add user bin to PATH\n{path_line}")
+            
+            # Проверяем, нужно ли добавить completion
+            if completion_line not in rc_content:
+                needs_update = True
+                if shell_name == "zsh":
+                    # Для ZSH нужен bashcompinit
+                    updates.append(f"""# SSH Connection Manager - Auto-completion
+# Enable bash completion compatibility for ZSH
+autoload -U +X bashcompinit && bashcompinit
+if [ -f {completion_script} ]; then
+    source {completion_script}
+fi""")
+                else:
+                    # Для Bash просто source
+                    updates.append(f"# SSH Connection Manager - Auto-completion\nif [ -f {completion_script} ]; then\n    source {completion_script}\nfi")
+            
+            if needs_update:
+                try:
+                    with open(rc_file, 'a') as f:
+                        f.write("\n")
+                        for update in updates:
+                            f.write(update + "\n")
+                    print_colored(Colors.GREEN, f"✅ {rc_file.name} обновлен")
+                    return True
+                except (PermissionError, IOError) as e:
+                    print_colored(Colors.YELLOW, f"⚠️  Не удалось автоматически обновить {rc_file.name}: {e}")
+                    print_colored(Colors.BLUE, f"\n📝 Добавьте вручную в ~/{rc_file.name}:")
+                    for update in updates:
+                        print_colored(Colors.BLUE, f"   {update}")
+                    return False
+            else:
+                print_colored(Colors.YELLOW, f"⚠️  Настройки уже присутствуют в {rc_file.name}")
+                return True
+        except (PermissionError, IOError) as e:
+            print_colored(Colors.YELLOW, f"⚠️  Не удалось прочитать {rc_file.name}: {e}")
+            return False
+    
     def setup_completion(self):
         """Настраивает completion для текущей оболочки"""
-        # Импортируем функции из install.py
         try:
-            # Добавляем путь к install.py в sys.path
-            install_path = Path(__file__).parent.parent.parent / "install.py"
-            if not install_path.exists():
-                print_colored(Colors.RED, "❌ Не найден install.py")
-                return
-            
-            # Импортируем модуль install
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("install", install_path)
-            install_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(install_module)
-            
-            # Используем функции из install.py
             home = Path.home()
-            completion_script = install_module.create_completion_script()
+            completion_script = self._create_completion_script()
             
             # Определяем текущую оболочку
             current_shell = os.environ.get('SHELL', '')
@@ -320,7 +430,7 @@ class SSHGoCLI:
                 return
             
             print_colored(Colors.BLUE, f"🔧 Настраиваю completion для {shell_name.upper()}...")
-            success = install_module.setup_shell_completion(shell_name, rc_file, completion_script)
+            success = self._setup_shell_completion(shell_name, rc_file, completion_script)
             
             if success:
                 print_colored(Colors.GREEN, f"✅ Completion настроен для {shell_name.upper()}!")
