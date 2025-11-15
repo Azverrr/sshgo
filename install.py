@@ -325,66 +325,6 @@ def create_config():
     print_colored(Colors.GREEN, f"✅ Конфиг создан: {config_file}")
 
 
-def create_aliases_in_rc(rc_file: Path):
-    """Создает алиасы в файле конфигурации оболочки"""
-    if not rc_file.exists():
-        return False
-    
-    try:
-        with open(rc_file, 'r') as f:
-            rc_content = f.read()
-        
-        if "# SSH Connection Manager alias" in rc_content:
-            return True  # Алиасы уже есть
-        
-        try:
-            with open(rc_file, 'a') as f:
-                f.write("\n# SSH Connection Manager alias\n")
-                f.write("alias sshl='sshgo list'\n")
-                f.write("alias sshm='sshgo'\n")
-                f.write("alias sshctl='sshgo'\n")
-            
-            return True
-        except (PermissionError, IOError) as e:
-            print_colored(Colors.YELLOW, f"⚠️  Не удалось создать алиасы в {rc_file.name}: {e}")
-            return False
-    except (PermissionError, IOError) as e:
-        print_colored(Colors.YELLOW, f"⚠️  Не удалось прочитать {rc_file.name}: {e}")
-        return False
-
-
-def create_aliases():
-    """Создает алиасы в .bashrc и .zshrc"""
-    home = Path.home()
-    bashrc = home / ".bashrc"
-    zshrc = home / ".zshrc"
-    
-    aliases_created = False
-    
-    # Создаем алиасы в Bash
-    if bashrc.exists():
-        if create_aliases_in_rc(bashrc):
-            aliases_created = True
-    
-    # Создаем алиасы в ZSH
-    if zshrc.exists():
-        if create_aliases_in_rc(zshrc):
-            aliases_created = True
-    
-    if aliases_created:
-        print_colored(Colors.BLUE, "🔗 Создаю удобные алиасы...")
-        print_colored(Colors.GREEN, "✅ Алиасы созданы:")
-        print_colored(Colors.BLUE, "   • sshl   - показать список серверов")
-        print_colored(Colors.BLUE, "   • sshm   - открыть меню")
-        print_colored(Colors.BLUE, "   • sshctl - управление серверами")
-    elif not bashrc.exists() and not zshrc.exists():
-        print_colored(Colors.YELLOW, "⚠️  Не найдены файлы конфигурации оболочек, алиасы не созданы")
-        print_colored(Colors.BLUE, "   Добавьте вручную в ~/.bashrc или ~/.zshrc:")
-        print_colored(Colors.BLUE, "   alias sshl='sshgo list'")
-        print_colored(Colors.BLUE, "   alias sshm='sshgo'")
-        print_colored(Colors.BLUE, "   alias sshctl='sshgo'")
-
-
 def show_usage():
     """Показывает инструкции по использованию"""
     config_file = Path.home() / ".config" / "sshgo" / "connections.conf"
@@ -393,7 +333,6 @@ def show_usage():
     print_colored(Colors.BLUE, "\n🚀 Готово к использованию!")
     print("• sshgo [Tab Tab]         - быстрое подключение к серверу")
     print("• sshgo                   - интерактивное меню")
-    print("• sshl / sshm             - короткие алиасы")
     print()
     print_colored(Colors.BLUE, "📋 Для начала работы:")
     print(f"1. Отредактируйте конфиг: nano {config_file}")
@@ -472,9 +411,6 @@ def uninstall():
             completion_patterns = [
                 "sshgo-completion",
                 "SSH Connection Manager",
-                "alias sshl",
-                "alias sshm",
-                "alias sshctl",
                 "bashcompinit"  # Для ZSH
             ]
             
@@ -542,7 +478,6 @@ def main():
     install_package()
     setup_completion()
     create_config()
-    create_aliases()
     show_usage()
 
 
