@@ -1,0 +1,78 @@
+#!/usr/bin/make -f
+# debian/rules для sshgo
+
+export DH_VERBOSE=1
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_install:
+	# Устанавливаем Python модули
+	dh_auto_install
+	
+	# Создаем исполняемый скрипт
+	mkdir -p debian/sshgo/usr/bin
+	echo '#!/usr/bin/env python3' > debian/sshgo/usr/bin/sshgo
+	echo '# SSH Connection Manager' >> debian/sshgo/usr/bin/sshgo
+	echo 'import sys' >> debian/sshgo/usr/bin/sshgo
+	echo 'from sshgo.cli import main' >> debian/sshgo/usr/bin/sshgo
+	echo '' >> debian/sshgo/usr/bin/sshgo
+	echo 'if __name__ == "__main__":' >> debian/sshgo/usr/bin/sshgo
+	echo '    main()' >> debian/sshgo/usr/bin/sshgo
+	chmod 755 debian/sshgo/usr/bin/sshgo
+	
+	# Создаем bash completion (кастомный скрипт, показывает только серверы)
+	mkdir -p debian/sshgo/etc/bash_completion.d
+	echo '# SSH Connection Manager - Auto-completion' > debian/sshgo/etc/bash_completion.d/sshgo
+	echo '# Функция автодополнения (показывает только серверы, не команды)' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '_sshgo_completion() {' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    local cur prev' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    COMPREPLY=()' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    cur="$${COMP_WORDS[COMP_CWORD]}"' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    prev="$${COMP_WORDS[COMP_CWORD-1]}"' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    ' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    # Если это первый аргумент после sshgo, предлагаем только серверы' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    if [ $$COMP_CWORD -eq 1 ]; then' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '        local config_file="$${SSH_CONFIG_FILE:-$$HOME/.config/sshgo/connections.conf}"' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '        ' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '        if [ -f "$$config_file" ]; then' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '            local servers=$$(grep -v '"'"'^#'"'"' "$$config_file" | grep -v '"'"'^$$'"'"' | cut -d'"'"'|'"'"' -f1 2>/dev/null | tr '"'"'\\n'"'"' '"'"' '"'"')' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '            COMPREPLY=( $$(compgen -W "$$servers" -- "$$cur") )' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '        else' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '            COMPREPLY=()' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '        fi' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    # Если это команда remove/edit/show, предлагаем только серверы' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    elif [ "$$prev" = "remove" ] || [ "$$prev" = "rm" ] || [ "$$prev" = "edit" ] || [ "$$prev" = "show" ]; then' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '        local config_file="$${SSH_CONFIG_FILE:-$$HOME/.config/sshgo/connections.conf}"' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '        if [ -f "$$config_file" ]; then' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '            local servers=$$(grep -v '"'"'^#'"'"' "$$config_file" | grep -v '"'"'^$$'"'"' | cut -d'"'"'|'"'"' -f1 2>/dev/null | tr '"'"'\\n'"'"' '"'"' '"'"')' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '            COMPREPLY=( $$(compgen -W "$$servers" -- "$$cur") )' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '        fi' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    fi' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    ' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '    return 0' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '}' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '# Регистрируем completion' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '# НЕ используем argcomplete, так как он показывает команды' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo '# Используем только нашу функцию, которая показывает только серверы' >> debian/sshgo/etc/bash_completion.d/sshgo
+	echo 'complete -F _sshgo_completion sshgo' >> debian/sshgo/etc/bash_completion.d/sshgo
+	chmod 644 debian/sshgo/etc/bash_completion.d/sshgo
+	
+	# Создаем пример конфига
+	mkdir -p debian/sshgo/etc/sshgo
+	echo '# SSH Connections Configuration' > debian/sshgo/etc/sshgo/connections.conf.example
+	echo '# Format: name|type|host|port|username|password|extra_params' >> debian/sshgo/etc/sshgo/connections.conf.example
+	echo '# Lines starting with # are comments' >> debian/sshgo/etc/sshgo/connections.conf.example
+	echo '#' >> debian/sshgo/etc/sshgo/connections.conf.example
+	echo '# Examples:' >> debian/sshgo/etc/sshgo/connections.conf.example
+	echo '# server1|ssh|192.168.1.10|22|user|mypassword|' >> debian/sshgo/etc/sshgo/connections.conf.example
+	echo '# server2|ssh|example.com|2222|admin||' >> debian/sshgo/etc/sshgo/connections.conf.example
+	echo '# local|ssh|localhost|22|user||' >> debian/sshgo/etc/sshgo/connections.conf.example
+	echo '#' >> debian/sshgo/etc/sshgo/connections.conf.example
+	chmod 644 debian/sshgo/etc/sshgo/connections.conf.example
+
+override_dh_python3:
+	dh_python3
+	# Убеждаемся, что все файлы на месте
+	find debian/sshgo -type f -name "*.py" -exec python3 -m py_compile {} \;

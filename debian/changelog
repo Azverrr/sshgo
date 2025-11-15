@@ -1,0 +1,11 @@
+sshgo (2.0.0-1) unstable; urgency=medium
+
+  * Initial Debian package release
+  * SSH Connection Manager Python version
+  * Interactive menu for server selection
+  * Server management (add, edit, remove, list)
+  * Bash completion support
+  * Support for passwords and SSH keys
+
+ -- SSH Connection Manager <sshgo@example.com>  Wed, 18 Dec 2024 12:00:00 +0300
+

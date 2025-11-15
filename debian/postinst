@@ -1,0 +1,48 @@
+#!/bin/sh
+# postinst script for sshgo
+
+set -e
+
+# Создаем пользовательский конфиг если не существует
+if [ ! -f "$HOME/.config/sshgo/connections.conf" ]; then
+    mkdir -p "$HOME/.config/sshgo"
+    if [ -f /etc/sshgo/connections.conf.example ]; then
+        cp /etc/sshgo/connections.conf.example "$HOME/.config/sshgo/connections.conf"
+        chmod 600 "$HOME/.config/sshgo/connections.conf"
+    fi
+fi
+
+# Добавляем в /etc/bash.bashrc если еще не добавлено
+if [ -f /etc/bash.bashrc ]; then
+    if ! grep -q "bash_completion.d/sshgo" /etc/bash.bashrc 2>/dev/null; then
+        echo "" >> /etc/bash.bashrc
+        echo "# SSH Connection Manager - Auto-completion" >> /etc/bash.bashrc
+        echo "if [ -f /etc/bash_completion.d/sshgo ]; then" >> /etc/bash.bashrc
+        echo "    source /etc/bash_completion.d/sshgo" >> /etc/bash.bashrc
+        echo "fi" >> /etc/bash.bashrc
+    fi
+fi
+
+# Также для /etc/bash.bashrc.local (если используется)
+if [ -f /etc/bash.bashrc.local ]; then
+    if ! grep -q "bash_completion.d/sshgo" /etc/bash.bashrc.local 2>/dev/null; then
+        echo "" >> /etc/bash.bashrc.local
+        echo "# SSH Connection Manager - Auto-completion" >> /etc/bash.bashrc.local
+        echo "if [ -f /etc/bash_completion.d/sshgo ]; then" >> /etc/bash.bashrc.local
+        echo "    source /etc/bash_completion.d/sshgo" >> /etc/bash.bashrc.local
+        echo "fi" >> /etc/bash.bashrc.local
+    fi
+fi
+
+# Обновляем кэш completion
+if command -v update-bash-completion >/dev/null 2>&1; then
+    update-bash-completion
+fi
+
+echo "SSH Connection Manager установлен!"
+echo "Используйте 'sshgo help' для справки"
+echo "Конфиг: ~/.config/sshgo/connections.conf"
+
+# DEBHELPER
+exit 0
+

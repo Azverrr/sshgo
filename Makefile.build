@@ -1,0 +1,145 @@
+# Makefile для сборки RPM и DEB пакетов sshgo
+
+NAME=sshgo
+VERSION=2.0.0
+RELEASE=1
+
+# Директории
+BUILDDIR=$(HOME)/rpmbuild
+SOURCEDIR=$(BUILDDIR)/SOURCES
+SPECDIR=$(BUILDDIR)/SPECS
+BUILDDIR=$(BUILDDIR)/BUILD
+
+.PHONY: all clean prepare build rpm deb install-rpm install-deb
+
+all: rpm deb
+
+# Пустая цель build для debhelper (чтобы избежать рекурсии)
+build:
+	@echo "📦 Сборка через debhelper..."
+	@true
+
+# Подготовка директорий RPM
+prepare:
+	@echo "📦 Подготовка директорий для сборки RPM..."
+	mkdir -p $(HOME)/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+	@echo "✅ Директории созданы"
+
+# Создание исходного архива
+source: prepare
+	@echo "📦 Создание исходного архива..."
+	@PROJECT_DIR=$$(basename $$(pwd)); \
+	PROJECT_PARENT=$$(dirname $$(pwd)); \
+	cd $$PROJECT_PARENT && tar -czf $(HOME)/rpmbuild/SOURCES/$(NAME)-$(VERSION).tar.gz \
+		--exclude='.git' \
+		--exclude='__pycache__' \
+		--exclude='*.pyc' \
+		--exclude='*.pyo' \
+		--exclude='.pytest_cache' \
+		--exclude='*.egg-info' \
+		$$PROJECT_DIR/
+	@echo "✅ Архив создан: $(HOME)/rpmbuild/SOURCES/$(NAME)-$(VERSION).tar.gz"
+
+# Копирование spec файла
+spec: prepare
+	@echo "📋 Копирование spec файла..."
+	cp rpm/$(NAME).spec $(HOME)/rpmbuild/SPECS/
+	@echo "✅ Spec файл скопирован"
+
+# Сборка RPM
+rpm: source spec
+	@echo "🔨 Сборка RPM пакета..."
+	rpmbuild -ba $(HOME)/rpmbuild/SPECS/$(NAME).spec
+	@echo "✅ RPM пакет собран!"
+	@echo "📦 Файлы:"
+	@ls -lh $(HOME)/rpmbuild/RPMS/*/$(NAME)-$(VERSION)-$(RELEASE)*.rpm
+	@ls -lh $(HOME)/rpmbuild/SRPMS/$(NAME)-$(VERSION)-$(RELEASE)*.src.rpm
+
+# Установка собранного RPM (требует sudo)
+install-rpm: rpm
+	@echo "📥 Установка RPM пакета..."
+	sudo rpm -ivh $(HOME)/rpmbuild/RPMS/*/$(NAME)-$(VERSION)-$(RELEASE)*.rpm
+	@echo "✅ Пакет установлен!"
+
+# Очистка
+clean:
+	@echo "🧹 Очистка..."
+	rm -rf $(HOME)/rpmbuild/BUILD/$(NAME)-$(VERSION)
+	rm -rf $(HOME)/rpmbuild/BUILDROOT/$(NAME)-$(VERSION)-$(RELEASE)*
+	@echo "✅ Очистка завершена"
+
+# Полная очистка (включая архивы)
+distclean: clean
+	rm -f $(HOME)/rpmbuild/SOURCES/$(NAME)-$(VERSION).tar.gz
+	rm -f $(HOME)/rpmbuild/SPECS/$(NAME).spec
+	@echo "✅ Полная очистка завершена"
+
+# Показать информацию о собранном пакете
+info: rpm
+	@echo "📋 Информация о пакете:"
+	rpm -qip $(HOME)/rpmbuild/RPMS/*/$(NAME)-$(VERSION)-$(RELEASE)*.rpm
+	@echo ""
+	@echo "📁 Содержимое пакета:"
+	rpm -qlp $(HOME)/rpmbuild/RPMS/*/$(NAME)-$(VERSION)-$(RELEASE)*.rpm
+
+# Сборка DEB пакета
+deb:
+	@echo "📦 Сборка DEB пакета..."
+	@if ! command -v dpkg-buildpackage >/dev/null 2>&1; then \
+		echo "❌ dpkg-buildpackage не найден. Установите: sudo apt-get install build-essential devscripts"; \
+		exit 1; \
+	fi
+	dpkg-buildpackage -b -uc -us
+	@echo "✅ DEB пакет собран!"
+	@echo "📦 Файлы:"
+	@ls -lh ../$(NAME)_$(VERSION)-$(RELEASE)*.deb 2>/dev/null || echo "   Файлы в родительской директории"
+
+# Установка собранного DEB (требует sudo)
+install-deb: deb
+	@echo "📥 Установка DEB пакета..."
+	sudo dpkg -i ../$(NAME)_$(VERSION)-$(RELEASE)*.deb || sudo apt-get install -f
+	@echo "✅ Пакет установлен!"
+
+# Информация о DEB пакете
+info-deb: deb
+	@echo "📋 Информация о пакете:"
+	@dpkg -I ../$(NAME)_$(VERSION)-$(RELEASE)*.deb 2>/dev/null || echo "Пакет не найден"
+	@echo ""
+	@echo "📁 Содержимое пакета:"
+	@dpkg -c ../$(NAME)_$(VERSION)-$(RELEASE)*.deb 2>/dev/null || echo "Пакет не найден"
+
+# Очистка DEB
+clean-deb:
+	@echo "🧹 Очистка DEB файлов..."
+	rm -rf debian/$(NAME)
+	rm -rf debian/.debhelper
+	rm -f debian/files
+	rm -f debian/*.substvars
+	rm -f debian/*.debhelper.log
+	rm -f ../$(NAME)_$(VERSION)-$(RELEASE)*.deb
+	rm -f ../$(NAME)_$(VERSION)-$(RELEASE)*.changes
+	rm -f ../$(NAME)_$(VERSION)-$(RELEASE)*.buildinfo
+	@echo "✅ Очистка завершена"
+
+help:
+	@echo "Доступные команды:"
+	@echo ""
+	@echo "RPM пакет:"
+	@echo "  make prepare      - создать директории для сборки"
+	@echo "  make source        - создать исходный архив"
+	@echo "  make spec          - скопировать spec файл"
+	@echo "  make rpm           - собрать RPM пакет"
+	@echo "  make install-rpm   - собрать и установить RPM"
+	@echo ""
+	@echo "DEB пакет:"
+	@echo "  make deb           - собрать DEB пакет"
+	@echo "  make install-deb   - собрать и установить DEB"
+	@echo "  make info-deb       - показать информацию о DEB пакете"
+	@echo "  make clean-deb      - очистить DEB файлы"
+	@echo ""
+	@echo "Общие:"
+	@echo "  make clean         - очистить временные файлы"
+	@echo "  make distclean     - полная очистка"
+	@echo "  make info          - показать информацию о RPM пакете"
+	@echo "  make help          - показать эту справку"
+
