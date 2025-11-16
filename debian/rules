@@ -69,10 +69,16 @@ override_dh_auto_install:
 	echo '# server1|ssh|192.168.1.10|22|user|mypassword|' >> debian/sshgo/etc/sshgo/connections.conf.example
 	echo '# server2|ssh|example.com|2222|admin||' >> debian/sshgo/etc/sshgo/connections.conf.example
 	echo '# local|ssh|localhost|22|user||' >> debian/sshgo/etc/sshgo/connections.conf.example
+	echo '# windows-server|rdp|192.168.1.20|3389|Administrator|pass123|' >> debian/sshgo/etc/sshgo/connections.conf.example
 	echo '#' >> debian/sshgo/etc/sshgo/connections.conf.example
 	chmod 644 debian/sshgo/etc/sshgo/connections.conf.example
 
 override_dh_python3:
 	dh_python3
-	# Убеждаемся, что все файлы на месте
+	# Убеждаемся, что все файлы на месте (включая поддиректории)
 	find debian/sshgo -type f -name "*.py" -exec python3 -m py_compile {} \;
+	# Проверяем наличие connection/
+	if [ ! -d debian/sshgo/usr/lib/python3*/dist-packages/sshgo/connection ]; then \
+		echo "ERROR: sshgo/connection directory not found in package!"; \
+		exit 1; \
+	fi

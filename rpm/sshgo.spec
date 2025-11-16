@@ -16,13 +16,13 @@ Requires: python3 >= 3.6
 Requires: python3-argcomplete
 
 %description
-SSH Connection Manager (sshgo) - удобный менеджер SSH подключений 
+SSH Connection Manager (sshgo) - удобный менеджер подключений 
 с интерактивным меню и автодополнением для bash и zsh.
 
 Позволяет быстро подключаться к серверам по имени, управлять 
 списком серверов и использовать интерактивное меню для выбора.
 
-Поддерживает автодополнение в Bash и ZSH.
+Поддерживает SSH и RDP протоколы, автодополнение в Bash и ZSH.
 
 %prep
 %setup -q
@@ -41,6 +41,8 @@ mkdir -p %{buildroot}%{_sysconfdir}/%{name}
 
 # Копируем Python модули
 cp -r sshgo/*.py %{buildroot}%{python3_sitelib}/%{name}/
+# Копируем поддиректории (connection и т.д.)
+[ -d sshgo/connection ] && cp -r sshgo/connection %{buildroot}%{python3_sitelib}/%{name}/ || true
 # Копируем __init__.py если есть
 [ -f sshgo/__init__.py ] && cp sshgo/__init__.py %{buildroot}%{python3_sitelib}/%{name}/ || true
 
@@ -106,6 +108,7 @@ cat > %{buildroot}%{_sysconfdir}/%{name}/connections.conf.example << 'EOF'
 # server1|ssh|192.168.1.10|22|user|mypassword|
 # server2|ssh|example.com|2222|admin||
 # local|ssh|localhost|22|user||
+# windows-server|rdp|192.168.1.20|3389|Administrator|pass123|
 #
 EOF
 chmod 644 %{buildroot}%{_sysconfdir}/%{name}/connections.conf.example

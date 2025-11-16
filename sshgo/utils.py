@@ -77,6 +77,7 @@ def show_server_summary(server: Server):
     """Показывает сводку информации о сервере"""
     print()
     print_colored(Colors.BLUE, "Подтверждение:")
+    print(f"🔌 Тип: {server.type.upper()}")
     print(f"📝 Имя: {server.name}")
     print(f"🌐 Хост: {server.host}:{server.port}")
     print(f"👤 Пользователь: {server.username}")

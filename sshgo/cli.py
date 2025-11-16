@@ -14,7 +14,7 @@ except ImportError:
     ARGCOMPLETE_AVAILABLE = False
 
 from .config import ConfigManager, Server
-from .connection import SSHConnection
+from .connection import Connection
 from .menu import Menu
 from .completion import CompletionManager, get_server_names, server_completer
 from .utils import (
@@ -28,7 +28,6 @@ class SSHGoCLI:
     
     def __init__(self):
         self.config_manager = ConfigManager()
-        self.connection = SSHConnection()
         self.menu = Menu(self.config_manager)
         self.completion_manager = CompletionManager()
     
@@ -55,8 +54,11 @@ class SSHGoCLI:
                 print(f"  • {server_name}")
             sys.exit(1)
         
+        # Создаем нужный тип подключения
+        connection = Connection.create(server)
+        
         print(f"Подключаемся к {server.username}@{server.host}:{server.port}...")
-        return_code = self.connection.connect(server)
+        return_code = connection.connect(server)
         
         if return_code != 0:
             print_colored(Colors.RED, f"❌ Ошибка подключения (код: {return_code})")
@@ -72,34 +74,55 @@ class SSHGoCLI:
         
         print_colored(Colors.BLUE, f"📋 Информация о сервере: {name}")
         print()
+        print(f"🔌 Тип подключения: {server.type.upper()}")
         print(f"🌐 Хост: {server.host}")
         print(f"🚪 Порт: {server.port}")
         print(f"👤 Пользователь: {server.username}")
         print(f"🔐 Пароль: {'установлен' if server.password else 'не установлен'}")
         print(f"📋 Параметры: {server.extra_params if server.extra_params else '-'}")
-        print(f"🔗 Команда подключения: ssh -p {server.port} {server.username}@{server.host}")
+        
+        # Формируем команду в зависимости от типа
+        if server.type.lower() == 'rdp':
+            print(f"🔗 Команда подключения: xfreerdp /v:{server.host}:{server.port} /u:{server.username}")
+        else:
+            print(f"🔗 Команда подключения: ssh -p {server.port} {server.username}@{server.host}")
     
     def add_server_interactive(self):
         """Интерактивное добавление сервера"""
         print_colored(Colors.BLUE, "🚀 Добавление нового сервера")
         print()
         
+        # Выбор типа подключения
+        print("Тип подключения:")
+        print("  1) SSH (по умолчанию)")
+        print("  2) RDP")
+        type_choice = input("Выберите тип [1]: ").strip()
+        
+        if type_choice == '2':
+            connection_type = 'rdp'
+            default_port = 3389  # Стандартный порт RDP
+            extra_prompt = "📋 Дополнительные RDP параметры [необязательно]: "
+        else:
+            connection_type = 'ssh'
+            default_port = 22
+            extra_prompt = "📋 Дополнительные SSH параметры [необязательно]: "
+        
         # Ввод данных
         name = input("📝 Имя сервера: ").strip()
         host = input("🌐 Хост (IP/домен): ").strip()
-        port_str = input("🚪 Порт [22]: ").strip()
+        port_str = input(f"🚪 Порт [{default_port}]: ").strip()
         username = input("👤 Пользователь: ").strip()
         
         # Пароль
         password = read_password_with_confirmation()
         
-        extra = input("📋 Дополнительные SSH параметры [необязательно]: ").strip()
+        extra = input(extra_prompt).strip()
         
         # Значения по умолчанию
         try:
-            port = int(port_str) if port_str else 22
+            port = int(port_str) if port_str else default_port
         except ValueError:
-            port = 22
+            port = default_port
         
         # Валидация
         is_valid, error = validate_server_data(name, host, port, username)
@@ -116,6 +139,7 @@ class SSHGoCLI:
         # Создаем сервер
         server = Server(
             name=name,
+            type=connection_type,
             host=host,
             port=port,
             username=username,
@@ -202,6 +226,7 @@ class SSHGoCLI:
         print_colored(Colors.BLUE, f"✏️  Редактирование сервера {name}")
         print()
         print("Текущие значения:")
+        print(f"🔌 Тип: {server.type.upper()}")
         print(f"📝 Имя: {server.name}")
         print(f"🌐 Хост: {server.host}")
         print(f"🚪 Порт: {server.port}")
@@ -210,6 +235,19 @@ class SSHGoCLI:
         print(f"📋 Параметры: {server.extra_params if server.extra_params else '-'}")
         print()
         print("Введите новые значения (Enter для пропуска):")
+        
+        # Выбор типа подключения
+        print("Тип подключения:")
+        print("  1) SSH")
+        print("  2) RDP")
+        default_choice = 1 if server.type.lower() == 'ssh' else 2
+        type_choice = input(f"Выберите тип [{default_choice}]: ").strip()
+        if not type_choice:
+            new_type = server.type  # Сохраняем текущий тип
+        elif type_choice == '2':
+            new_type = 'rdp'
+        else:
+            new_type = 'ssh'
         
         # Ввод новых значений
         new_name = input(f"📝 Имя [{server.name}]: ").strip() or server.name
@@ -250,6 +288,7 @@ class SSHGoCLI:
         # Создаем обновленный сервер
         updated_server = Server(
             name=new_name,
+            type=new_type,
             host=new_host,
             port=new_port,
             username=new_username,
@@ -276,8 +315,11 @@ class SSHGoCLI:
         server = self.menu.show_menu()
         
         if server:
+            # Создаем нужный тип подключения
+            connection = Connection.create(server)
+            
             print(f"Подключаемся к {server.username}@{server.host}:{server.port}...")
-            return_code = self.connection.connect(server)
+            return_code = connection.connect(server)
             
             if return_code != 0:
                 print_colored(Colors.RED, f"❌ Ошибка подключения (код: {return_code})")

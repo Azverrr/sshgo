@@ -11,9 +11,9 @@ Vcs-Git: https://github.com/example/sshgo.git
 Package: sshgo
 Architecture: all
 Depends: ${python3:Depends}, ${misc:Depends}, python3-argcomplete
-Description: SSH Connection Manager - удобный менеджер SSH подключений
- SSH Connection Manager (sshgo) - удобный менеджер SSH подключений
- с интерактивным меню и автодополнением для bash.
+Description: SSH Connection Manager - удобный менеджер подключений
+ SSH Connection Manager (sshgo) - удобный менеджер подключений
+ с интерактивным меню и автодополнением для bash и zsh.
  .
  Позволяет быстро подключаться к серверам по имени, управлять
  списком серверов и использовать интерактивное меню для выбора.
@@ -22,6 +22,7 @@ Description: SSH Connection Manager - удобный менеджер SSH под
   * Интерактивное меню выбора сервера
   * Прямое подключение по имени
   * Управление серверами (add, edit, remove, list)
-  * Bash completion для автодополнения
+  * Bash и ZSH completion для автодополнения
+  * Поддержка SSH и RDP протоколов
   * Поддержка паролей и SSH ключей
 

@@ -5,14 +5,14 @@
 import subprocess
 import shutil
 from typing import Optional
-from .config import Server
+from .base import Connection
+from ..config import Server
 
 
-class SSHConnection:
+class SSHConnection(Connection):
     """Класс для управления SSH подключениями"""
     
-    @staticmethod
-    def connect(server: Server) -> int:
+    def connect(self, server: Server) -> int:
         """
         Подключается к серверу через SSH
         
@@ -68,8 +68,7 @@ class SSHConnection:
             # Подключаемся без пароля (используем SSH ключи)
             return subprocess.call(cmd)
     
-    @staticmethod
-    def test_connection(server: Server, timeout: int = 5) -> bool:
+    def test_connection(self, server: Server, timeout: int = 5) -> bool:
         """
         Тестирует подключение к серверу
         

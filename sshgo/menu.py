@@ -34,13 +34,13 @@ class Menu:
         while True:
             self.clear_screen()
             print("=" * 40)
-            print("           МЕНЕДЖЕР SSH")
+            print("      МЕНЕДЖЕР ПОДКЛЮЧЕНИЙ")
             print("=" * 40)
             print()
             
             # Показываем список серверов
             for i, server in enumerate(servers, 1):
-                print(f"{i}) {server.name}")
+                print(f"{i}) {server.name} [{server.type.upper()}]")
                 print(f"   {server.username}@{server.host}:{server.port}")
                 if server.password:
                     print("   [с паролем]")

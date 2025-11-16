@@ -1,2 +1,3 @@
 sshgo/*.py usr/lib/python3*/dist-packages/sshgo/
+sshgo/connection usr/lib/python3*/dist-packages/sshgo/
 
