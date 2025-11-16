@@ -24,6 +24,15 @@ def print_colored(color: str, message: str):
     print(f"{color}{message}{Colors.NC}")
 
 
+def check_sudo():
+    """Проверяет наличие прав sudo"""
+    if os.geteuid() != 0:
+        print_colored(Colors.RED, "❌ Для установки требуются права root (sudo)")
+        print_colored(Colors.BLUE, "   Запустите: sudo python3 install.py")
+        print_colored(Colors.YELLOW, "\n💡 Альтернатива: используйте пакетную установку (DEB/RPM)")
+        sys.exit(1)
+
+
 def check_python_version():
     """Проверяет версию Python"""
     if sys.version_info < (3, 6):
@@ -65,14 +74,11 @@ def check_existing_installation():
             "severity": "high"
         })
     
-    # Проверяем пользовательскую установку
+    # Проверяем системную установку через install.py (старая версия могла установить в ~/.local/bin)
     user_sshgo = Path.home() / ".local" / "bin" / "sshgo"
     if user_sshgo.exists():
-        conflicts.append({
-            "type": "pip/install.py",
-            "path": str(user_sshgo),
-            "severity": "high"
-        })
+        warnings.append(f"Обнаружена старая пользовательская установка: {user_sshgo}")
+        warnings.append("Рекомендуется удалить её перед системной установкой")
     
     # Проверяем .pth файлы (режим разработки)
     pth_files = find_pth_files()
@@ -83,11 +89,11 @@ def check_existing_installation():
             "severity": "high"
         })
     
-    # Проверяем наличие completion скриптов
-    user_completion = Path.home() / ".bash_completion.d" / "sshgo-completion.sh"
-    system_completion = Path("/etc/bash_completion.d/sshgo")
-    if user_completion.exists() and system_completion.exists():
-        warnings.append("Обнаружены оба completion скрипта (пользовательский и системный)")
+    # Проверяем наличие completion скрипта в системной директории
+    system_completion = Path("/usr/share/bash-completion/completions/sshgo")
+    if system_completion.exists():
+        # Completion скрипт уже установлен - это нормально
+        pass
     
     return conflicts, warnings
 
@@ -160,21 +166,21 @@ def check_version_conflict():
 
 
 def install_package():
-    """Устанавливает пакет через pip или напрямую"""
-    print_colored(Colors.BLUE, "📦 Устанавливаю SSH Connection Manager...")
+    """Устанавливает пакет через pip (системная установка, требует sudo)"""
+    print_colored(Colors.BLUE, "📦 Устанавливаю SSH Connection Manager (системная установка)...")
     
-    # Пробуем разные методы установки
+    # Пробуем разные методы установки (все системные, без --user)
     methods = [
-        # Метод 1: pipx (лучший вариант для CLI приложений)
+        # Метод 1: pip с --break-system-packages (системная установка)
         {
-            "name": "pipx",
-            "cmd": ["pipx", "install", "-e", "."],
-            "check": lambda: shutil.which("pipx") is not None
+            "name": "pip (системная установка)",
+            "cmd": [sys.executable, "-m", "pip", "install", "--break-system-packages", "."],
+            "check": lambda: True
         },
-        # Метод 2: pip с --break-system-packages (если пользователь согласен)
+        # Метод 2: pip без флагов (если система позволяет)
         {
-            "name": "pip --break-system-packages",
-            "cmd": [sys.executable, "-m", "pip", "install", "--break-system-packages", "--user", "-e", "."],
+            "name": "pip (системная установка)",
+            "cmd": [sys.executable, "-m", "pip", "install", "."],
             "check": lambda: True
         },
         # Метод 3: Прямая установка скрипта (без pip)
@@ -204,9 +210,11 @@ def install_package():
             print_colored(Colors.GREEN, f"✅ Пакет установлен через {method['name']}")
             
             # Проверяем, что команда доступна
-            user_bin = Path.home() / ".local" / "bin"
-            if (user_bin / "sshgo").exists():
-                print_colored(Colors.GREEN, f"✅ Команда sshgo установлена в {user_bin}/sshgo")
+            system_bin = Path("/usr/local/bin/sshgo")
+            if system_bin.exists():
+                print_colored(Colors.GREEN, f"✅ Команда sshgo установлена в {system_bin}")
+            elif shutil.which("sshgo"):
+                print_colored(Colors.GREEN, f"✅ Команда sshgo доступна в PATH")
             return
             
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -218,14 +226,14 @@ def install_package():
 
 
 def install_direct():
-    """Устанавливает скрипт напрямую без pip"""
-    print_colored(Colors.BLUE, "📦 Устанавливаю напрямую (без pip)...")
+    """Устанавливает скрипт напрямую без pip (системная установка)"""
+    print_colored(Colors.BLUE, "📦 Устанавливаю напрямую (системная установка)...")
     
-    user_bin = Path.home() / ".local" / "bin"
-    user_bin.mkdir(parents=True, exist_ok=True)
+    system_bin = Path("/usr/local/bin")
+    system_bin.mkdir(parents=True, exist_ok=True)
     
     # Создаем обертку-скрипт
-    sshgo_script = user_bin / "sshgo"
+    sshgo_script = system_bin / "sshgo"
     
     # Определяем путь к модулю
     project_dir = Path(__file__).parent.absolute()
@@ -249,25 +257,30 @@ if __name__ == "__main__":
     
     sshgo_script.chmod(0o755)
     print_colored(Colors.GREEN, f"✅ Скрипт установлен в {sshgo_script}")
-    
-    # Убеждаемся, что ~/.local/bin в PATH
-    if str(user_bin) not in os.environ.get("PATH", ""):
-        print_colored(Colors.YELLOW, f"⚠️  Добавьте {user_bin} в PATH")
-        print_colored(Colors.BLUE, f"   Добавьте в ~/.bashrc: export PATH=\"$HOME/.local/bin:$PATH\"")
 
 
 def setup_completion():
-    """Настраивает completion для всех доступных оболочек"""
-    # Импортируем здесь, чтобы избежать циклических зависимостей
-    # при установке пакета
+    """Настраивает completion в системной директории (автоматически при установке)"""
+    print_colored(Colors.BLUE, "🔧 Настраиваю автодополнение...")
     try:
         from sshgo.completion import CompletionManager
         manager = CompletionManager()
-        manager.setup_completion(setup_all_shells=True)
+        success = manager.setup_completion(setup_all_shells=True)
+        if success:
+            print_colored(Colors.GREEN, "✅ Автодополнение настроено автоматически!")
+        return success
     except ImportError:
-        # Если модуль еще не установлен, используем старый способ
         print_colored(Colors.YELLOW, "⚠️  Модуль sshgo не установлен, пропускаю настройку completion")
-        print_colored(Colors.BLUE, "   Запустите 'sshgo setup-completion' после установки")
+        print_colored(Colors.BLUE, "   Запустите после установки: sudo sshgo setup-completion")
+        return False
+    except PermissionError as e:
+        print_colored(Colors.RED, f"❌ Ошибка: {e}")
+        print_colored(Colors.BLUE, "   Запустите установку с sudo: sudo python3 install.py")
+        return False
+    except Exception as e:
+        print_colored(Colors.YELLOW, f"⚠️  Ошибка при настройке completion: {e}")
+        print_colored(Colors.BLUE, "   Запустите после установки: sudo sshgo setup-completion")
+        return False
 
 
 def create_config():
@@ -317,9 +330,9 @@ def show_usage():
     # Определяем текущую оболочку
     current_shell = os.environ.get('SHELL', '')
     if 'zsh' in current_shell:
-        print_colored(Colors.YELLOW, "💡 Перезагрузите терминал или выполните: source ~/.zshrc")
+        print_colored(Colors.YELLOW, "💡 Перезапустите терминал для активации")
     else:
-        print_colored(Colors.YELLOW, "💡 Перезагрузите терминал или выполните: source ~/.bashrc")
+        print_colored(Colors.YELLOW, "💡 Перезапустите терминал для активации")
 
 
 def uninstall():
@@ -392,76 +405,17 @@ def uninstall():
     if not removed:
         print_colored(Colors.YELLOW, "⚠️  Пакет удален вручную (pip не смог удалить)")
     
-    # Удаляем completion
-    completion_script = home / ".bash_completion.d" / "sshgo-completion.sh"
-    if completion_script.exists():
-        completion_script.unlink()
-        print_colored(Colors.GREEN, "✅ Completion скрипт удален")
-    
-    # Удаляем строки из .bashrc и .zshrc
-    def clean_rc_file(rc_file: Path):
-        """Очищает файл конфигурации оболочки от настроек sshgo"""
-        if not rc_file.exists():
-            return False
-        
+    # Удаляем completion скрипт из системной директории
+    system_completion = Path("/usr/share/bash-completion/completions/sshgo")
+    if system_completion.exists():
         try:
-            with open(rc_file, 'r') as f:
-                lines = f.readlines()
-            
-            new_lines = []
-            skip_block = False
-            completion_patterns = [
-                "sshgo-completion",
-                "SSH Connection Manager",
-                "bashcompinit"  # Для ZSH
-            ]
-            
-            for i, line in enumerate(lines):
-                # Пропускаем строки, связанные с sshgo
-                should_skip = False
-                for pattern in completion_patterns:
-                    if pattern in line:
-                        should_skip = True
-                        skip_block = True
-                        break
-                
-                # Пропускаем пустые строки после блока sshgo
-                if skip_block and line.strip() == "":
-                    continue
-                
-                # Пропускаем лишние fi после блока sshgo
-                if skip_block and line.strip() == "fi" and i > 0:
-                    # Проверяем, есть ли соответствующий if выше
-                    prev_lines = [l.strip() for l in lines[max(0, i-10):i]]
-                    if "if" not in " ".join(prev_lines) or prev_lines.count("if") <= prev_lines.count("fi"):
-                        skip_block = False
-                        continue
-                
-                # Завершаем пропуск блока при встрече обычной строки
-                if skip_block and line.strip() and not any(p in line for p in completion_patterns):
-                    if not line.strip().startswith("fi"):
-                        skip_block = False
-                
-                if not should_skip and not (skip_block and line.strip() == "fi"):
-                    new_lines.append(line)
-            
-            with open(rc_file, 'w') as f:
-                f.writelines(new_lines)
-            
-            return True
-        except (PermissionError, IOError) as e:
-            print_colored(Colors.YELLOW, f"⚠️  Не удалось очистить {rc_file.name}: {e}")
-            return False
+            system_completion.unlink()
+            print_colored(Colors.GREEN, "✅ Completion скрипт удален")
+        except PermissionError:
+            print_colored(Colors.YELLOW, "⚠️  Не удалось удалить completion скрипт (требуется sudo)")
+            print_colored(Colors.BLUE, "   Удалите вручную: sudo rm /usr/share/bash-completion/completions/sshgo")
     
-    # Очищаем .bashrc
-    bashrc = home / ".bashrc"
-    if bashrc.exists() and clean_rc_file(bashrc):
-        print_colored(Colors.GREEN, "✅ .bashrc очищен")
-    
-    # Очищаем .zshrc
-    zshrc = home / ".zshrc"
-    if zshrc.exists() and clean_rc_file(zshrc):
-        print_colored(Colors.GREEN, "✅ .zshrc очищен")
+    # Очистка завершена (не требуется очистка конфигов оболочек)
     
     config_file = home / ".config" / "sshgo" / "connections.conf"
     print_colored(Colors.BLUE, f"📁 Конфиг сохранен: {config_file}")
@@ -477,6 +431,7 @@ def main():
     print()
     
     check_python_version()
+    check_sudo()  # Проверяем права sudo
     
     # Проверяем наличие существующих установок
     conflicts, warnings = check_existing_installation()
@@ -489,8 +444,6 @@ def main():
         for conflict in conflicts:
             if conflict['type'] == "DEB/RPM package":
                 print_colored(Colors.BLUE, "   • Удалите пакет: sudo apt remove sshgo (или sudo rpm -e sshgo)")
-            elif conflict['type'] == "pip/install.py":
-                print_colored(Colors.BLUE, "   • Удалите пользовательскую установку: python3 install.py uninstall")
             elif conflict['type'] == "development mode (.pth)":
                 print_colored(Colors.BLUE, "   • Удалите .pth файлы вручную или используйте: python3 install.py uninstall")
         

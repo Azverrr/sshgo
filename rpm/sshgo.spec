@@ -28,6 +28,8 @@ SSH Connection Manager (sshgo) - удобный менеджер подключ�
 %setup -q
 
 %build
+# Создаем директорию для completion
+mkdir -p %{buildroot}%{_datadir}/bash-completion/completions
 # Python пакет не требует компиляции
 # Но можно проверить синтаксис
 python3 -m py_compile sshgo/*.py
@@ -36,7 +38,6 @@ python3 -m py_compile sshgo/*.py
 # Создаем директории
 mkdir -p %{buildroot}%{_bindir}
 mkdir -p %{buildroot}%{python3_sitelib}/%{name}
-mkdir -p %{buildroot}%{_sysconfdir}/bash_completion.d
 mkdir -p %{buildroot}%{_sysconfdir}/%{name}
 
 # Копируем Python модули
@@ -59,7 +60,8 @@ EOF
 chmod 755 %{buildroot}%{_bindir}/sshgo
 
 # Создаем bash completion (кастомный скрипт, показывает только серверы)
-cat > %{buildroot}%{_sysconfdir}/bash_completion.d/sshgo << 'EOF'
+# Используем стандартную директорию для автоматической загрузки в ZSH
+cat > %{buildroot}%{_datadir}/bash-completion/completions/sshgo << 'EOF'
 # SSH Connection Manager - Auto-completion
 # Функция автодополнения (показывает только серверы, не команды)
 _sshgo_completion() {
@@ -95,7 +97,7 @@ _sshgo_completion() {
 # Используем только нашу функцию, которая показывает только серверы
 complete -F _sshgo_completion sshgo
 EOF
-chmod 644 %{buildroot}%{_sysconfdir}/bash_completion.d/sshgo
+chmod 644 %{buildroot}%{_datadir}/bash-completion/completions/sshgo
 
 # Создаем пример конфига
 mkdir -p %{buildroot}%{_sysconfdir}/%{name}
@@ -121,80 +123,21 @@ if [ ! -f "$HOME/.config/sshgo/connections.conf" ]; then
     chmod 600 "$HOME/.config/sshgo/connections.conf"
 fi
 
-# Добавляем в /etc/bashrc если еще не добавлено
-if [ -f /etc/bashrc ]; then
-    if ! grep -q "bash_completion.d/sshgo" /etc/bashrc 2>/dev/null; then
-        echo "" >> /etc/bashrc
-        echo "# SSH Connection Manager - Auto-completion" >> /etc/bashrc
-        echo "if [ -f /etc/bash_completion.d/sshgo ]; then" >> /etc/bashrc
-        echo "    source /etc/bash_completion.d/sshgo" >> /etc/bashrc
-        echo "fi" >> /etc/bashrc
-    fi
-fi
-
-# Также для /etc/bash.bashrc (Debian/Ubuntu стиль)
-if [ -f /etc/bash.bashrc ]; then
-    if ! grep -q "bash_completion.d/sshgo" /etc/bash.bashrc 2>/dev/null; then
-        echo "" >> /etc/bash.bashrc
-        echo "# SSH Connection Manager - Auto-completion" >> /etc/bash.bashrc
-        echo "if [ -f /etc/bash_completion.d/sshgo ]; then" >> /etc/bash.bashrc
-        echo "    source /etc/bash_completion.d/sshgo" >> /etc/bash.bashrc
-        echo "fi" >> /etc/bash.bashrc
-    fi
-fi
-
-# Настройка для ZSH (пользовательский файл)
-if [ -f "$HOME/.zshrc" ]; then
-    if ! grep -q "bash_completion.d/sshgo" "$HOME/.zshrc" 2>/dev/null; then
-        echo "" >> "$HOME/.zshrc"
-        echo "# SSH Connection Manager - Auto-completion" >> "$HOME/.zshrc"
-        echo "# Enable bash completion compatibility for ZSH" >> "$HOME/.zshrc"
-        echo "autoload -U +X bashcompinit && bashcompinit" >> "$HOME/.zshrc"
-        echo "if [ -f /etc/bash_completion.d/sshgo ]; then" >> "$HOME/.zshrc"
-        echo "    source /etc/bash_completion.d/sshgo" >> "$HOME/.zshrc"
-        echo "fi" >> "$HOME/.zshrc"
-    fi
-fi
+# Completion скрипт установлен в %{_datadir}/bash-completion/completions/sshgo
+# Он автоматически загружается в Bash и ZSH
 
 %preun
 # Удаление не требуется, но можно добавить очистку
 
 %postun
-# Очистка настроек после удаления пакета
-# Удаляем настройки из /etc/bashrc
-if [ -f /etc/bashrc ]; then
-    if grep -q "bash_completion.d/sshgo" /etc/bashrc 2>/dev/null; then
-        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' /etc/bashrc
-        sed -i '/bash_completion.d\/sshgo/d' /etc/bashrc
-    fi
-fi
-
-# Удаляем настройки из /etc/bash.bashrc
-if [ -f /etc/bash.bashrc ]; then
-    if grep -q "bash_completion.d/sshgo" /etc/bash.bashrc 2>/dev/null; then
-        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' /etc/bash.bashrc
-        sed -i '/bash_completion.d\/sshgo/d' /etc/bash.bashrc
-    fi
-fi
-
-# Удаляем настройки из пользовательского ~/.zshrc (если есть)
-if [ -n "$HOME" ] && [ -f "$HOME/.zshrc" ]; then
-    if grep -q "bash_completion.d/sshgo" "$HOME/.zshrc" 2>/dev/null; then
-        # Создаем резервную копию
-        cp "$HOME/.zshrc" "$HOME/.zshrc.sshgo.backup" 2>/dev/null || true
-        
-        # Удаляем блок настроек sshgo
-        sed -i '/# SSH Connection Manager - Auto-completion/,/^fi$/d' "$HOME/.zshrc"
-        sed -i '/bash_completion.d\/sshgo/d' "$HOME/.zshrc"
-        sed -i '/bashcompinit.*sshgo/d' "$HOME/.zshrc"
-    fi
-fi
+# Completion скрипт удаляется автоматически при удалении пакета
+# Completion скрипт удаляется автоматически
 
 %files
 %defattr(-,root,root,-)
 %{_bindir}/sshgo
 %{python3_sitelib}/%{name}/
-%{_sysconfdir}/bash_completion.d/sshgo
+%{_datadir}/bash-completion/completions/sshgo
 %config(noreplace) %{_sysconfdir}/%{name}/connections.conf.example
 
 %changelog

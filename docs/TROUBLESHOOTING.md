@@ -10,61 +10,32 @@
 
 1. **Проверьте наличие скрипта:**
    ```bash
-   ls -la ~/.bash_completion.d/sshgo-completion.sh
+   ls -la /usr/share/bash-completion/completions/sshgo
    ```
-   Если файла нет, переустановите: `cd sshgo_python && python3 install.py`
+   Если файла нет, переустановите: `cd sshgo_python && sudo python3 install.py`
 
 2. **Используйте команду для автоматической настройки:**
    ```bash
-   sshgo setup-completion
+   sudo sshgo setup-completion
    ```
-   Команда автоматически определит оболочку и настроит completion.
+   Команда пересоздаст completion скрипт в системной директории.
 
-3. **Или настройте вручную:**
-
-   **Для Bash:**
+3. **Проверьте регистрацию:**
    ```bash
-   # Перезагрузите completion
-   source ~/.bash_completion.d/sshgo-completion.sh
-   
-   # Проверьте регистрацию
    complete -p | grep sshgo
-   # Должно показать: complete -F _sshgo_completion sshgo
-   
-   # Проверьте, что скрипт подключен в .bashrc
-   grep sshgo-completion ~/.bashrc
-   # Должна быть строка: source ~/.bash_completion.d/sshgo-completion.sh
-   
-   # Если нет - добавьте вручную
-   echo 'if [ -f ~/.bash_completion.d/sshgo-completion.sh ]; then' >> ~/.bashrc
-   echo '    source ~/.bash_completion.d/sshgo-completion.sh' >> ~/.bashrc
-   echo 'fi' >> ~/.bashrc
-   source ~/.bashrc
    ```
+   Должно показать: `complete -F _sshgo_completion sshgo`
 
-   **Для ZSH:**
+4. **Для ZSH - убедитесь, что включен bashcompinit в конфигурации ZSH:**
    ```bash
-   # Перезагрузите completion
-   autoload -U +X bashcompinit && bashcompinit
-   source ~/.bash_completion.d/sshgo-completion.sh
+   # Проверьте наличие bashcompinit
+   grep bashcompinit ~/.zshrc
    
-   # Проверьте регистрацию
-   complete -p | grep sshgo
-   # Должно показать: complete -F _sshgo_completion sshgo
-   
-   # Проверьте, что скрипт подключен в .zshrc
-   grep sshgo-completion ~/.zshrc
-   # Должны быть строки:
-   # autoload -U +X bashcompinit && bashcompinit
-   # source ~/.bash_completion.d/sshgo-completion.sh
-   
-   # Если нет - добавьте вручную
+   # Если нет - добавьте в конфигурацию ZSH (обычно уже есть в Oh My Zsh и других конфигах)
    echo 'autoload -U +X bashcompinit && bashcompinit' >> ~/.zshrc
-   echo 'if [ -f ~/.bash_completion.d/sshgo-completion.sh ]; then' >> ~/.zshrc
-   echo '    source ~/.bash_completion.d/sshgo-completion.sh' >> ~/.zshrc
-   echo 'fi' >> ~/.zshrc
-   source ~/.zshrc
    ```
+
+5. **Перезапустите терминал** для применения изменений.
 
 ### Проблема: Показываются команды вместе с серверами
 
@@ -79,7 +50,7 @@
 
 2. **Загрузите правильный скрипт:**
    ```bash
-   source ~/.bash_completion.d/sshgo-completion.sh
+   source /usr/share/bash-completion/completions/sshgo
    ```
 
 3. **Проверьте регистрацию:**
@@ -93,12 +64,9 @@
    ```bash
    cd sshgo_python
    python3 install.py uninstall
-   python3 install.py
-   # Для Bash:
-   source ~/.bashrc
-   # Для ZSH:
-   source ~/.zshrc
+   sudo python3 install.py
    ```
+   Перезапустите терминал для применения изменений.
 
 ### Проблема: Автодополнение не работает в ZSH
 
@@ -106,24 +74,21 @@
 
 **Решение:**
 
-1. **Проверьте наличие `bashcompinit` в `.zshrc`:**
+1. **Проверьте наличие `bashcompinit` в конфигурации ZSH:**
    ```bash
    grep bashcompinit ~/.zshrc
    ```
    Должна быть строка: `autoload -U +X bashcompinit && bashcompinit`
 
-2. **Если нет - используйте команду:**
-   ```bash
-   sshgo setup-completion
-   ```
-
-3. **Или добавьте вручную:**
+2. **Если нет - добавьте вручную в конфигурацию ZSH:**
    ```bash
    echo 'autoload -U +X bashcompinit && bashcompinit' >> ~/.zshrc
-   echo 'if [ -f ~/.bash_completion.d/sshgo-completion.sh ]; then' >> ~/.zshrc
-   echo '    source ~/.bash_completion.d/sshgo-completion.sh' >> ~/.zshrc
-   echo 'fi' >> ~/.zshrc
-   source ~/.zshrc
+   ```
+   **Примечание:** Completion скрипт автоматически загружается из `/usr/share/bash-completion/completions/sshgo`.
+
+3. **Или используйте команду для пересоздания скрипта:**
+   ```bash
+   sudo sshgo setup-completion
    ```
 
 4. **Проверьте, что completion загружен:**
@@ -134,21 +99,16 @@
 
 ## 📁 Проблемы с правами доступа
 
-### Проблема: Нет прав на запись в `.bashrc` или `.zshrc`
+### Проблема: Нет прав на установку (требуется sudo)
 
 **Решение:**
 
-**Для Bash:**
+Установка требует прав `sudo` для системной установки:
 ```bash
-sudo chown $USER:$USER ~/.bashrc
-sudo chmod 644 ~/.bashrc
+sudo python3 install.py
 ```
 
-**Для ZSH:**
-```bash
-sudo chown $USER:$USER ~/.zshrc
-sudo chmod 644 ~/.zshrc
-```
+**Примечание:** Completion скрипт устанавливается в системную директорию `/usr/share/bash-completion/completions/sshgo`, поэтому требуется `sudo`.
 
 ### Проблема: Нет прав на конфиг
 
@@ -171,28 +131,19 @@ chmod 600 ~/.config/sshgo/connections.conf
 
 2. Проверьте PATH:
    ```bash
-   echo $PATH | grep ".local/bin"
+   echo $PATH | grep "/usr/local/bin"
    ```
 
-3. Добавьте в PATH:
-
-   **Для Bash:**
+3. Проверьте наличие команды:
    ```bash
-   export PATH="$HOME/.local/bin:$PATH"
-   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-   source ~/.bashrc
+   ls -la /usr/local/bin/sshgo
+   which sshgo
    ```
 
-   **Для ZSH:**
+4. Если команда не найдена, переустановите:
    ```bash
-   export PATH="$HOME/.local/bin:$PATH"
-   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-   source ~/.zshrc
-   ```
-
-4. Проверьте наличие команды:
-   ```bash
-   ls -la ~/.local/bin/sshgo
+   cd sshgo_python
+   sudo python3 install.py
    ```
 
 ## ❌ Ошибки подключения
@@ -267,12 +218,9 @@ cd sshgo_python
 python3 install.py uninstall
 
 # Переустановка
-python3 install.py
-# Для Bash:
-source ~/.bashrc
-# Для ZSH:
-source ~/.zshrc
+sudo python3 install.py
 ```
+Перезапустите терминал для применения изменений.
 
 ## 🐚 Проблемы с оболочками
 
@@ -280,17 +228,25 @@ source ~/.zshrc
 
 **Решение:**
 
-1. **Используйте команду для автоматической настройки:**
+1. **Убедитесь, что включен bashcompinit в конфигурации ZSH:**
    ```bash
-   sshgo setup-completion
+   grep bashcompinit ~/.zshrc
    ```
-   Команда определит текущую оболочку (ZSH) и настроит completion.
+   Если нет - добавьте в конфигурацию ZSH: `echo 'autoload -U +X bashcompinit && bashcompinit' >> ~/.zshrc`
 
-2. **Или проверьте, что настройки есть в `.zshrc`:**
+2. **Проверьте наличие completion скрипта:**
    ```bash
-   grep sshgo-completion ~/.zshrc
+   ls -la /usr/share/bash-completion/completions/sshgo
    ```
-   Если нет - запустите `sshgo setup-completion`
+
+3. **Если скрипта нет, используйте команду:**
+   ```bash
+   sudo sshgo setup-completion
+   ```
+
+4. **Перезапустите терминал** для применения изменений.
+
+**Примечание:** Completion скрипт автоматически загружается из системной директории.
 
 ## 📞 Дополнительная помощь
 
