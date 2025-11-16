@@ -306,8 +306,22 @@ class Menu:
             
             if not self.filtered_servers:
                 self._display_menu(self.filtered_servers, self.selected_type, self.selected_index, self.search_query)
-                key = self._getch()
-                if key == '\x1b' or key == 'q':
+                try:
+                    key = self._getch()
+                    
+                    if key == '\x1b' or key == 'q':  # Escape или 'q'
+                        return None
+                    elif key == '\x7f' or key == '\b':  # Backspace
+                        if self.search_query:
+                            self.search_query = self.search_query[:-1]
+                            # Продолжаем цикл, чтобы обновить фильтрацию
+                            continue
+                    elif key.isprintable() and ord(key) >= 32:  # Печатаемые символы
+                        self.search_query += key
+                        # Продолжаем цикл, чтобы обновить фильтрацию
+                        continue
+                    # Игнорируем другие клавиши (стрелки и т.д.)
+                except KeyboardInterrupt:
                     return None
                 continue
             
